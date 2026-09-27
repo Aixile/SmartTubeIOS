@@ -248,6 +248,24 @@ public struct SettingsView: View {
 
     // MARK: - UI
 
+    private enum ThumbnailStyle: Hashable {
+        case standard, highResolution, compact
+    }
+
+    /// UI-only view over the two independent `compactThumbnails` / `highResThumbnails` flags.
+    private var thumbnailStyle: Binding<ThumbnailStyle> {
+        Binding(
+            get: {
+                if store.settings.compactThumbnails { return .compact }
+                return store.settings.highResThumbnails ? .highResolution : .standard
+            },
+            set: { style in
+                store.settings.compactThumbnails = style == .compact
+                store.settings.highResThumbnails = style == .highResolution
+            }
+        )
+    }
+
     private var uiSection: some View {
         @Bindable var store = store
         return Section("Interface") {
@@ -257,6 +275,35 @@ public struct SettingsView: View {
                 }
             }
             .accessibilityIdentifier("settings.themeRow")
+            Picker("Accent Color", selection: $store.settings.accentColor) {
+                ForEach(AppSettings.AccentColorChoice.allCases, id: \.self) { choice in
+                    Label {
+                        Text(choice.displayName)
+                    } icon: {
+                        choice.swatch
+                    }
+                    .tag(choice)
+                }
+            }
+            .accessibilityIdentifier("settings.accentColorPicker")
+            Picker("Thumbnails", selection: thumbnailStyle) {
+                Text("Standard").tag(ThumbnailStyle.standard)
+                Text("High Resolution").tag(ThumbnailStyle.highResolution)
+                Text("Compact").tag(ThumbnailStyle.compact)
+            }
+            .accessibilityIdentifier("settings.thumbnailStylePicker")
+            #if !os(tvOS)
+            Picker("Columns (Portrait)", selection: $store.settings.gridColumnsPortrait) {
+                ForEach(AppSettings.availableGridColumnCounts, id: \.self) { Text("\($0)").tag($0) }
+            }
+            .disabled(store.settings.compactThumbnails)
+            .accessibilityIdentifier("settings.gridColumnsPortraitPicker")
+            Picker("Columns (Landscape)", selection: $store.settings.gridColumnsLandscape) {
+                ForEach(AppSettings.availableGridColumnCounts, id: \.self) { Text("\($0)").tag($0) }
+            }
+            .disabled(store.settings.compactThumbnails)
+            .accessibilityIdentifier("settings.gridColumnsLandscapePicker")
+            #endif
             Toggle("Hide Shorts", isOn: $store.settings.hideShorts)
                 .accessibilityIdentifier("settings.hideShortsToggle")
             Toggle("Hide Live Shorts", isOn: $store.settings.hideLiveShorts)
@@ -265,7 +312,6 @@ public struct SettingsView: View {
                 .accessibilityIdentifier("settings.hideVideoPremieresToggle")
             Toggle("Per-Device Recommendations", isOn: $store.settings.perDeviceRecommendationsEnabled)
                 .accessibilityIdentifier("settings.perDeviceRecommendationsToggle")
-            Toggle("Compact Thumbnails", isOn: $store.settings.compactThumbnails)
             Toggle("Hide Watched Videos", isOn: $store.settings.hideWatchedVideos)
                 .accessibilityIdentifier("settings.hideWatchedVideosToggle")
             if store.settings.hideWatchedVideos {
