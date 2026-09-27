@@ -543,10 +543,11 @@ public struct VideoCardView: View {
             //    0 → sddefault.jpg  (640×480, available for most videos)
             //    1 → hqdefault.jpg  (480×360, always available)
             //    2 → mqdefault.jpg  (320×180, always available — last resort)
-            let fallbacks = video.thumbnailFallbackURLs
+            let highRes = store.settings.highResThumbnails
+            let fallbacks = highRes ? video.highResThumbnailFallbackURLs : video.thumbnailFallbackURLs
             let url: URL? =
                 thumbnailFallbackIndex < 0
-                ? (deArrowThumbnailURL ?? video.thumbnailURL ?? fallbacks.first)
+                ? (deArrowThumbnailURL ?? (highRes ? video.maxResThumbnailURL : video.thumbnailURL) ?? fallbacks.first)
                 : (thumbnailFallbackIndex < fallbacks.count ? fallbacks[thumbnailFallbackIndex] : nil)
             AsyncImage(url: url) { phase in
                 switch phase {

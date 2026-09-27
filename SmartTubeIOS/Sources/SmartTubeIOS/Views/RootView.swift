@@ -18,6 +18,7 @@ public struct RootView: View {
     /// at a stable level unaffected by context menu dismiss animations on cards.
     @Environment(VideoDownloadService.self) private var cardDownloadService
     @State private var cardDownloadAlertItem: DownloadAlertItem?
+    @State private var isLandscapeLayout = false
 
     public init() {}
 
@@ -37,6 +38,9 @@ public struct RootView: View {
             MainTabView()
             #endif
         }
+        .environment(\.isLandscapeLayout, isLandscapeLayout)
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { isLandscapeLayout = $0 }
+        .tint(store.settings.accentColor.color)
         .preferredColorScheme(store.settings.themeName.colorScheme)
         #if !os(tvOS)
         .onChange(of: cardDownloadService.state) { _, newState in
