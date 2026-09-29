@@ -465,6 +465,12 @@ public struct VideoCardView: View {
             }
             .padding(.horizontal, 2)
         }
+        // #153: without an explicit content shape, SwiftUI's default hit-test area for this
+        // compound view can leave gaps (the VStack spacing, padding) untappable — invisible on
+        // iOS/tvOS where touches are more forgiving, but very noticeable with a precise mouse
+        // pointer on macOS. The caller (VideoGridSection) attaches its whole-card tap gesture
+        // externally, so it needs this view's own hit-test region to cover its full frame.
+        .contentShape(Rectangle())
     }
 
     // MARK: Compact (list) layout
@@ -515,6 +521,7 @@ public struct VideoCardView: View {
             }
             Spacer(minLength: 0)
         }
+        .contentShape(Rectangle())  // #153: see gridLayout's doc comment
     }
 
     // MARK: Shared
