@@ -24,25 +24,40 @@ public final class WatchLaterMembershipStore {
 
     public private(set) var videoIds: Set<String> = []
 
-    private init() {
-        videoIds = Set(UserDefaults.standard.stringArray(forKey: Self.defaultsKey) ?? [])
+    /// When each video was saved *this session* — in-memory only. `videoIds` is persisted
+    /// and never pruned, so it can't tell a just-saved video from one saved months ago (and
+    /// since removed elsewhere); only recent saves justify waiting on YouTube's index (#157).
+    private var savedAt: [String: Date] = [:]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        videoIds = Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
     }
+
+    private let defaults: UserDefaults
 
     public func contains(_ videoId: String) -> Bool {
         videoIds.contains(videoId)
     }
 
-    public func markSaved(_ videoId: String) {
+    public func markSaved(_ videoId: String, at date: Date = Date()) {
+        savedAt[videoId] = date
         guard videoIds.insert(videoId).inserted else { return }
         persist()
     }
 
     public func markRemoved(_ videoId: String) {
+        savedAt[videoId] = nil
         guard videoIds.remove(videoId) != nil else { return }
         persist()
     }
 
+    /// Videos saved via this app within the last `interval` seconds of `now`.
+    public func recentlySaved(within interval: TimeInterval, now: Date = Date()) -> Set<String> {
+        Set(savedAt.filter { now.timeIntervalSince($0.value) <= interval }.keys)
+    }
+
     private func persist() {
-        UserDefaults.standard.set(Array(videoIds), forKey: Self.defaultsKey)
+        defaults.set(Array(videoIds), forKey: Self.defaultsKey)
     }
 }

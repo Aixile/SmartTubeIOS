@@ -91,4 +91,36 @@ struct TileRendererSetVideoIdTests {
         let video = try #require(group.videos.first)
         #expect(video.setVideoId == nil)
     }
+
+    @Test("falls back to a menu item's playlistEditEndpoint setVideoId")
+    func extractsFromMenuPlaylistEditEndpoint() async throws {
+        let tile: [String: Any] = [
+            "contentType": "TILE_CONTENT_TYPE_VIDEO",
+            "onSelectCommand": ["watchEndpoint": ["videoId": "tilevidid", "playlistId": "WL"]],
+            "metadata": [
+                "tileMetadataRenderer": ["title": ["simpleText": "Test Video"]]
+            ],
+            "menu": [
+                "menuRenderer": [
+                    "items": [
+                        [
+                            "menuServiceItemRenderer": [
+                                "serviceEndpoint": [
+                                    "playlistEditEndpoint": [
+                                        "playlistId": "WL",
+                                        "actions": [["action": "ACTION_REMOVE_VIDEO", "setVideoId": "MENUTOKEN"]],
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+        ]
+        let response = makeTileRendererResponse(tile)
+        let api = InnerTubeAPI()
+        let group = try await api.parseVideoGroupForTesting(response, title: nil)
+        let video = try #require(group.videos.first)
+        #expect(video.setVideoId == "MENUTOKEN")
+    }
 }

@@ -54,6 +54,7 @@ public final class BrowseViewModel {
 
     private let api: any InnerTubeAPIProtocol
     private let localHistory: LocalWatchHistoryStore
+    private let watchLaterMembership: WatchLaterMembershipStore
     private var fetchTask: Task<Void, Never>?
     private var enrichTask: Task<Void, Never>?
     /// When `false`, the History section returns empty content rather than fetching from YouTube.
@@ -73,9 +74,11 @@ public final class BrowseViewModel {
 
     public init(
         api: any InnerTubeAPIProtocol = InnerTubeAPI(), initialSection: BrowseSection? = nil,
-        localHistory: LocalWatchHistoryStore = .shared
+        localHistory: LocalWatchHistoryStore = .shared,
+        watchLaterMembership: WatchLaterMembershipStore = .shared
     ) {
         self.localHistory = localHistory
+        self.watchLaterMembership = watchLaterMembership
         self.api = api
         if let initial = initialSection {
             // Ensure the initial section appears in the picker list.
@@ -423,9 +426,8 @@ public final class BrowseViewModel {
                 }
                 return
             }
-            // #150: SmartTube can't write to the YouTube account's history (no web
-            // session cookies from device-code sign-in), so the app keeps its own
-            // on-device history and shows it first, followed by whatever the account
+            // #150: YouTube doesn't reliably credit watches to the account for device-code
+            // sign-in, so the app keeps its own on-device history and shows it first, followed by whatever the account
             // history returns (best-effort — signed-out/failed fetches just yield local).
             let local = localHistory.videos
             let remote: VideoGroup? = try? await api.fetchHistory()
@@ -518,13 +520,15 @@ public final class BrowseViewModel {
                 }
             } else {
                 var group = try await api.fetchPlaylistVideos(playlistId: "WL", continuationToken: nil)
-                // #157: a video just added via this app (WatchLaterMembershipStore) can be
-                // momentarily missing here — YouTube's own playlist index doesn't always reflect
-                // an add immediately, so even an explicit pull-to-refresh right after saving can
-                // race it. One short delayed re-fetch covers that window without retrying forever.
-                let locallyMarkedSaved = WatchLaterMembershipStore.shared.videoIds
+                // #157: a video just added via this app can be momentarily missing here —
+                // YouTube's own playlist index doesn't always reflect an add immediately, so even
+                // an explicit pull-to-refresh right after saving can race it. One short delayed
+                // re-fetch covers that window. Only *recent* saves count: the persisted membership
+                // set is never pruned and only this first page is compared, so using it would add
+                // a delay + second fetch to every load for anyone with an old or deep entry.
+                let justSaved = watchLaterMembership.recentlySaved(within: 120)
                 let fetchedIds = Set(group.videos.map(\.id))
-                if !locallyMarkedSaved.isEmpty, !locallyMarkedSaved.isSubset(of: fetchedIds), !Task.isCancelled {
+                if !justSaved.isEmpty, !justSaved.isSubset(of: fetchedIds), !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     if !Task.isCancelled {
                         group = try await api.fetchPlaylistVideos(playlistId: "WL", continuationToken: nil)
