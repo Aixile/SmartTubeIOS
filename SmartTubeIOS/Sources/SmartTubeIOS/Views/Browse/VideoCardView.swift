@@ -546,11 +546,18 @@ public struct VideoCardView: View {
             systemPlaylistThumbnail
         } else {
             // Walk a fallback chain on each successive failure:
-            //   -1 → deArrowThumbnailURL (community thumbnail) or thumbnailURL (API-provided)
+            //   -1 → deArrowThumbnailURL (community thumbnail), else maxresdefault.jpg when
+            //        High Resolution is on, else thumbnailURL (API-provided)
+            //    (High Resolution only: hq720.jpg, then the standard chain below)
             //    0 → sddefault.jpg  (640×480, available for most videos)
             //    1 → hqdefault.jpg  (480×360, always available)
             //    2 → mqdefault.jpg  (320×180, always available — last resort)
-            let highRes = store.settings.highResThumbnails
+            // High-res URLs are built from `/vi/<id>/`, so they only make sense for real
+            // videos: playlist placeholder cards (Playlists section: id == playlistId) would
+            // walk the whole chain against a playlist ID and end on a grey placeholder, and
+            // Shorts would swap their portrait thumbnail for a landscape one.
+            let highRes =
+                store.settings.highResThumbnails && video.playlistId != video.id && !video.isShort
             let fallbacks = highRes ? video.highResThumbnailFallbackURLs : video.thumbnailFallbackURLs
             let url: URL? =
                 thumbnailFallbackIndex < 0

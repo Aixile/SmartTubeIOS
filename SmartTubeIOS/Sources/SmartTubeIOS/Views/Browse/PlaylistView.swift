@@ -211,6 +211,7 @@ public struct PlaylistView: View {
                             .onAppear { vm.loadMoreIfNeeded(lastVideo: video) }
                     }
                 }
+                .id(isLandscapeLayout)  // reset on column-count change — see VideoGridSection (#82)
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 #endif

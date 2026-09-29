@@ -285,7 +285,11 @@ struct VideoGridSection: View {
                         }
                 }
             }
-            .id(orientationToken)
+            // Column count now follows isLandscapeLayout (set by a later layout pass than the
+            // orientation notification, and also on iPad split-screen resizes), so reset the
+            // grid's identity on that too — a column change without an identity reset is the
+            // wrong-video-tapped-after-rotation bug (#82).
+            .id("\(orientationToken)-\(isLandscapeLayout)")
             .padding(.horizontal)
             .padding(.vertical, 8)
             #if canImport(UIKit)

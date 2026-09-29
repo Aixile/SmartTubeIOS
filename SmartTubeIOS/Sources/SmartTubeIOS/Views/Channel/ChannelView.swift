@@ -225,6 +225,7 @@ public struct ChannelView: View {
                             }
                     }
                 }
+                .id(isLandscapeLayout)  // reset on column-count change — see VideoGridSection (#82)
                 .padding()
                 #endif
             }
