@@ -157,8 +157,10 @@ public final class WatchtimeTracker {
         if !isFinal, let last = lastCheckpointAt, Date().timeIntervalSince(last) < Self.checkpointInterval {
             return
         }
-        await checkpoint(position: position, duration: duration)
+        // Stamped before the await: ticks arrive several times a second, and stamping after
+        // would let every tick during an in-flight checkpoint pass the throttle.
         lastCheckpointAt = Date()
+        await checkpoint(position: position, duration: duration)
     }
 
     /// Records the current watch position and reports the watched interval.
@@ -198,6 +200,20 @@ public final class WatchtimeTracker {
             return
         }
 
+        // Claim this segment before any await. Checkpoints can overlap (player ticks, pause()
+        // followed by saveProgress() on close); updating state only after the network calls
+        // let a second call read the same segmentStart and re-send the same interval, or send
+        // the final ping twice. With the claim up front, an overlapping call sees an empty
+        // segment (or didReportFinal) and skips.
+        if isFinal {
+            didReportFinal = true
+        } else {
+            segmentStart = position
+        }
+        if needsNewRecord || isFinal {
+            recordOpenedAt = Date()
+        }
+
         await VideoStateStore.shared.save(videoId: vid, position: position, duration: duration)
 
         if needsNewRecord || isFinal {
@@ -207,7 +223,6 @@ public final class WatchtimeTracker {
             await api.reportPlaybackStarted(
                 videoId: vid, cpn: localCPN, trackingURLs: localURLs,
                 lengthSeconds: duration, startPosition: isFinal ? duration : segStart, final: isFinal)
-            recordOpenedAt = Date()
         }
 
         trackerLog.notice(
@@ -219,12 +234,6 @@ public final class WatchtimeTracker {
             segmentStart: isFinal ? duration : segStart,
             segmentEnd: isFinal ? duration : position,
             final: isFinal)
-
-        if isFinal {
-            didReportFinal = true
-        } else {
-            segmentStart = position
-        }
     }
 
     /// Flushes the segment before a seek and starts the next segment at the target.

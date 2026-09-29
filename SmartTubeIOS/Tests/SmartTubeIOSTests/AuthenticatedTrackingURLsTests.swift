@@ -231,6 +231,37 @@ struct AuthenticatedTrackingURLsTests {
         )
     }
 
+    @Test("fetchAuthenticatedTrackingURLs falls back to Bearer when SAPISID is absent")
+    func trackingFetchUsesBearerWithoutSAPISID() async {
+        StubURLProtocol.responses = [
+            "youtube.com/": (200, Data("\"STS\":12345".utf8)),
+            "youtubei/v1/player": (200, Data("{}".utf8)),
+        ]
+        StubURLProtocol.capturedHeaders = [:]
+        let api = makeAPI()
+        _ = await api.fetchAuthenticatedTrackingURLs(videoId: "testvid123")
+
+        let auth = StubURLProtocol.capturedHeaders["youtubei/v1/player"]?["Authorization"]
+        #expect(auth == "Bearer fake-token")
+    }
+
+    @Test("WebSafari playback fetch never sends Bearer (www.youtube.com rejects it; PR #129)")
+    func playbackFetchOmitsBearerWithoutSAPISID() async {
+        StubURLProtocol.responses = [
+            "youtube.com/": (200, Data("\"STS\":12345".utf8)),
+            "youtubei/v1/player": (200, Data("{}".utf8)),
+        ]
+        StubURLProtocol.capturedHeaders = [:]
+        let api = makeAPI()
+        _ = try? await api.fetchPlayerInfoWebSafari(videoId: "testvid123")
+
+        guard let headers = StubURLProtocol.capturedHeaders["youtubei/v1/player"] else {
+            Issue.record("No request headers captured for /player")
+            return
+        }
+        #expect(headers["Authorization"] == nil)
+    }
+
     // MARK: - Stats URL construction (Android parity)
 
     private static func session() -> InnerTubeAPI.TrackingSession {

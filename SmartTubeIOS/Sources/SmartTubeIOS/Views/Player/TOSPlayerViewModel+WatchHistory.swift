@@ -25,21 +25,31 @@ private let tosLog = Logger(subsystem: "com.void.smarttube.app", category: "TOSP
 
 extension TOSPlayerViewModel {
 
+    /// How long to wait after a failed tracking-URL resolution before trying again.
+    static let trackingResolveRetryInterval: TimeInterval = 300
+
     func ensureTrackingSession() async {
         guard !tracker.hasTrackingSession else { return }
         if let task = trackingSessionTask {
             await task.value
             return
         }
+        // This runs on every playing tick (4×/s). Without a back-off, a failed resolution —
+        // the common case when no authenticated client returns account-bound URLs — would
+        // immediately start another round of up to three authenticated player requests,
+        // continuously, for the whole video.
+        if let failedAt = lastTrackingResolveFailureAt,
+            Date().timeIntervalSince(failedAt) < Self.trackingResolveRetryInterval
+        {
+            return
+        }
         let videoId = videoId
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.trackingSessionTask = nil }
-            do {
-                let urls = await self.api.fetchHistoryTrackingURLs(videoId: videoId)
-                self.tracker.setTrackingURLs(urls)
-            } catch {
-            }
+            let urls = await self.api.fetchHistoryTrackingURLs(videoId: videoId)
+            self.tracker.setTrackingURLs(urls)
+            self.lastTrackingResolveFailureAt = self.tracker.hasTrackingSession ? nil : Date()
         }
         trackingSessionTask = task
         await task.value
@@ -59,8 +69,8 @@ extension TOSPlayerViewModel {
             tosLog.debug("[watchtime] history disabled — skipping tracker session")
             return
         }
-        // #150: on-device history (the YouTube account can't be written to — see
-        // LocalWatchHistoryStore). Guards above already cover Incognito / history disabled.
+        // #150: on-device history (see LocalWatchHistoryStore). Guards above already cover
+        // Incognito / history disabled.
         LocalWatchHistoryStore.shared.record(
             Video(
                 id: videoId, title: videoTitle, channelTitle: channelTitle, channelId: channelId,
@@ -98,14 +108,13 @@ extension TOSPlayerViewModel {
             let cached = await VideoPreloadCache.shared.consume(videoId: videoId)
             // Outer nil = not cached (treat as "no URLs yet"); inner nil = cached "no URLs".
             // `?? nil` flattens PlaybackTrackingURLs?? → PlaybackTrackingURLs? either way.
-            let cachedURLs = cached.trackingURLs ?? nil
-            let urls: PlaybackTrackingURLs?
-            if let cachedURLs {
-                urls = cachedURLs
+            if let cachedURLs = cached.trackingURLs ?? nil {
+                self.tracker.setTrackingURLs(cachedURLs)
             } else {
-                urls = await api.fetchHistoryTrackingURLs(videoId: videoId)
+                // Same deduplicated, backed-off path the per-tick checkpoints use, so a cache
+                // miss doesn't race a second identical resolution started by the first tick.
+                await self.ensureTrackingSession()
             }
-            self.tracker.setTrackingURLs(urls)
             if let status = cached.nextInfo?.likeStatus {
                 self.likeDislike.setLikeStatus(status)
                 tosLog.notice(

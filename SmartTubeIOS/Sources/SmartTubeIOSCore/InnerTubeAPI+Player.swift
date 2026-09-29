@@ -535,7 +535,7 @@ extension InnerTubeAPI {
         }
         do {
             let body = await buildTrackingURLsBody(videoId: videoId)
-            let data = try await postWebSafari(body: body)
+            let data = try await postWebSafari(body: body, allowBearerFallback: true)
             guard
                 let tracking = data["playbackTracking"] as? [String: Any],
                 let pbStr = (tracking["videostatsPlaybackUrl"] as? [String: Any])?["baseUrl"] as? String,
@@ -573,7 +573,7 @@ extension InnerTubeAPI {
             // yet, seed it here so postWebSafari can use Bearer+AuthUser as a fallback when
             // SAPISIDHASH is unavailable.
             if authToken == nil { authToken = token }
-            let data = try await postWebSafari(body: body)
+            let data = try await postWebSafari(body: body, allowBearerFallback: true)
             guard
                 let tracking = data["playbackTracking"] as? [String: Any],
                 let pbStr = (tracking["videostatsPlaybackUrl"] as? [String: Any])?["baseUrl"] as? String,
