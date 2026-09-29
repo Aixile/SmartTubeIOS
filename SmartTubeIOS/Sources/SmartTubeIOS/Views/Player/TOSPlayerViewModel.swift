@@ -301,11 +301,6 @@ final class TOSPlayerViewModel: NSObject {
         // part of #283 (background play/PiP support); does not by itself enable PiP
         // or background audio — see task-283 for what was actually tried and learned.
         config.allowsPictureInPictureMediaPlayback = true
-        // #149 (unverified mitigation): on iPad WKWebView defaults to *desktop-class*
-        // content mode, which changes how taps reach the page (synthesized mouse events).
-        // The player works on iPhone (mobile mode) but its own YouTube controls were
-        // reported unresponsive on an iPad Pro; force iPhone-style handling everywhere.
-        config.defaultWebpagePreferences.preferredContentMode = .mobile
         #endif
 
         let contentController = WKUserContentController()
