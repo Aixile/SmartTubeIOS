@@ -505,6 +505,18 @@ extension InnerTubeAPI {
             return nil
         }
 
+        // #157: the playlist-entry token InnerTube uses to identify *this occurrence* of the
+        // video within a playlist (distinct from the video ID itself — a playlist can hold the
+        // same video more than once). WEB's playlistVideoRenderer exposes it as a top-level
+        // `setVideoId` (see parsePlaylistVideoRenderer below); the TV client's tileRenderer only
+        // has it nested inside the watch endpoint as `playlistSetVideoId`. Without this, removal
+        // from an authenticated playlist fetch (e.g. the Home page's Watch Later section, which
+        // goes through the TV client) always fails with "Missing playlist entry information",
+        // since VideoCardView's remove action requires `Video.setVideoId`.
+        let setVideoId =
+            watchEndpoint?["playlistSetVideoId"] as? String
+            ?? reelWatchEndpoint?["playlistSetVideoId"] as? String
+
         // title: metadata.tileMetadataRenderer.title — Android: TileItem.getTitle()
         let tileMetadata = (tile["metadata"] as? [String: Any])?["tileMetadataRenderer"] as? [String: Any]
         let title = (tileMetadata?["title"] as? [String: Any]).flatMap { extractText($0) } ?? ""
@@ -714,6 +726,7 @@ extension InnerTubeAPI {
             isUpcoming: isUpcoming,
             isShort: isShort,
             watchProgress: watchProgress,
+            setVideoId: setVideoId,
             badges: []
         )
     }

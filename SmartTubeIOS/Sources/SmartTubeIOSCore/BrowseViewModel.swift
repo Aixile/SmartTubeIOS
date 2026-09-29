@@ -517,7 +517,19 @@ public final class BrowseViewModel {
                     videoGroups = []
                 }
             } else {
-                let group = try await api.fetchPlaylistVideos(playlistId: "WL", continuationToken: nil)
+                var group = try await api.fetchPlaylistVideos(playlistId: "WL", continuationToken: nil)
+                // #157: a video just added via this app (WatchLaterMembershipStore) can be
+                // momentarily missing here — YouTube's own playlist index doesn't always reflect
+                // an add immediately, so even an explicit pull-to-refresh right after saving can
+                // race it. One short delayed re-fetch covers that window without retrying forever.
+                let locallyMarkedSaved = WatchLaterMembershipStore.shared.videoIds
+                let fetchedIds = Set(group.videos.map(\.id))
+                if !locallyMarkedSaved.isEmpty, !locallyMarkedSaved.isSubset(of: fetchedIds), !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    if !Task.isCancelled {
+                        group = try await api.fetchPlaylistVideos(playlistId: "WL", continuationToken: nil)
+                    }
+                }
                 if !Task.isCancelled {
                     isAuthRequired = false
                     var stamped = group
