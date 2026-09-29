@@ -68,7 +68,7 @@ struct PlaylistPickerSheet: View {
                     ? String(localized: "Copy to Playlist", bundle: .module)
                     : String(localized: "Move to Playlist", bundle: .module)
             )
-            #if !os(macOS)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

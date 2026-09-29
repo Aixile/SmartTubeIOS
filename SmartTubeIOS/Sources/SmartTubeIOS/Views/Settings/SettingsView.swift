@@ -315,11 +315,21 @@ public struct SettingsView: View {
             Toggle("Hide Watched Videos", isOn: $store.settings.hideWatchedVideos)
                 .accessibilityIdentifier("settings.hideWatchedVideosToggle")
             if store.settings.hideWatchedVideos {
+                #if os(tvOS)
+                // tvOS has no Stepper.
+                Picker("Watched threshold", selection: $store.settings.hideWatchedThreshold) {
+                    ForEach(Array(stride(from: 50, through: 100, by: 5)), id: \.self) { percent in
+                        Text("\(percent)%").tag(Double(percent) / 100)
+                    }
+                }
+                .accessibilityIdentifier("settings.hideWatchedThresholdStepper")
+                #else
                 Stepper(
                     "Watched threshold: \(Int(store.settings.hideWatchedThreshold * 100))%",
                     value: $store.settings.hideWatchedThreshold, in: 0.5...1.0, step: 0.05
                 )
                 .accessibilityIdentifier("settings.hideWatchedThresholdStepper")
+                #endif
             }
             #if os(iOS)
             if #available(iOS 26.0, *) {
