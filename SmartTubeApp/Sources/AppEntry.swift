@@ -178,6 +178,7 @@ struct AppEntry: App {
                 .environment(authService)
                 .environment(browseViewModel)
                 .environment(settingsStore)
+                .tint(settingsStore.settings.accentColor.color)
                 .frame(minWidth: 480)
         }
         #elseif os(tvOS)
