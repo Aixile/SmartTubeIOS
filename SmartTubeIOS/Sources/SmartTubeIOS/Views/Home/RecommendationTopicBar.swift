@@ -4,27 +4,9 @@ import SwiftUI
 struct RecommendationTopicBar: View {
     let model: RecommendationTopicsViewModel
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showsTopics = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            chips
-            Button {
-                showsTopics = true
-            } label: {
-                Label("Topics", systemImage: AppSymbol.topics)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(10)
-                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 12)
-            .padding(.bottom, 8)
-            .accessibilityLabel("Show all topics")
-            .accessibilityIdentifier(AccessibilityID.Home.topicPickerButton)
-        }
-        .accessibilityIdentifier(AccessibilityID.Home.topicBar)
-        .sheet(isPresented: $showsTopics) { RecommendationTopicPicker(model: model) }
+        chips.accessibilityIdentifier(AccessibilityID.Home.topicBar)
     }
 
     private var chips: some View {
@@ -70,7 +52,7 @@ struct RecommendationTopicBar: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
-                    selected ? Color.primary : Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8)
+                    selected ? Color.primary : Color.secondary.opacity(0.08), in: Capsule()
                 )
                 .foregroundStyle(selected ? (colorScheme == .dark ? Color.black : Color.white) : Color.primary)
         }

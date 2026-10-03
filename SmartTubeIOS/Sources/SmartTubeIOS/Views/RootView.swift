@@ -137,13 +137,12 @@ enum AppSection: String, CaseIterable, Identifiable {
 
 // MARK: - MainTabView  (iOS / iPadOS)
 
-// Propagates the bottom safe-area inset (tab bar + home indicator) from inside a
-// NavigationStack tab to the enclosing MainTabView so the mini player overlay can
-// be positioned exactly at the top of the tab bar without hard-coding its height.
+// Only the selected tab reports its inset; inactive navigation stacks can report
+// stale safe-area values while the full-screen player is being dismissed.
 private struct TabBarBottomInsetKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+        value = nextValue()
     }
 }
 
@@ -204,12 +203,14 @@ struct MainTabView: View {
                     // The value is propagated up to tabBarBottomInset via PreferenceKey
                     // so the mini-player overlay can be positioned above the tab bar.
                     .background {
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(
-                                    key: TabBarBottomInsetKey.self,
-                                    value: geo.safeAreaInsets.bottom
-                                )
+                        if section == selectedTab {
+                            GeometryReader { geo in
+                                Color.clear
+                                    .preference(
+                                        key: TabBarBottomInsetKey.self,
+                                        value: geo.safeAreaInsets.bottom
+                                    )
+                            }
                         }
                     }
                     .tabItem { Label(section.rawValue, systemImage: section.icon) }
@@ -226,42 +227,18 @@ struct MainTabView: View {
             selectedTab = .search
         }
         #if os(iOS)
-        // Reserve vertical space so scrollable tab content is not hidden under the
-        // mini player. Uses a transparent placeholder rather than the real MiniPlayerView
-        // to avoid duplicating the PersistentPlayerHostView UIKit layer across tabs.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Reserve vertical space for whichever mini-player is visible so
-            // scrollable content is not obscured (only one can be active at a time).
+        // Render one live window above the feed, leaving the tab bar tappable.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
             if playerState.presentation == .miniPlayer || tosState.presentation == .miniPlayer {
-                Color.clear.frame(height: 62)
-            }
-        }
-        // Render the single visible MiniPlayerView above the tab bar.
-        // tabBarBottomInset = tab-bar height + home-indicator (e.g. 83 pt on Face ID
-        // iPhones), read from inside the NavigationStack where UITabBarController has
-        // already baked it into the safe area. The transparent passthrough spacer below
-        // the mini player ensures tab-bar items remain tappable.
-        .overlay(alignment: .bottom) {
-            // Only one mini-player can be active at a time: AVPlayer and TOS are
-            // mutually exclusive (onChange stops the other before starting the new one).
-            if playerState.presentation == .miniPlayer {
-                VStack(spacing: 0) {
-                    MiniPlayerView()
-                    Color.clear
-                    .frame(height: tabBarBottomInset)
-                    .allowsHitTesting(false)
+                FloatingMiniPlayerContainer(tabBarBottomInset: tabBarBottomInset) {
+                    if playerState.presentation == .miniPlayer {
+                        MiniPlayerView()
+                    } else {
+                        TOSMiniPlayerView()
+                    }
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.easeInOut(duration: 0.2), value: playerState.presentation)
-            } else if tosState.presentation == .miniPlayer {
-                VStack(spacing: 0) {
-                    TOSMiniPlayerView()
-                    Color.clear
-                    .frame(height: tabBarBottomInset)
-                    .allowsHitTesting(false)
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.easeInOut(duration: 0.2), value: tosState.presentation)
+                .transition(.opacity)
             }
         }
         .landscapePlayerCover(item: fullScreenBinding, dismissStore: playerState) { video in

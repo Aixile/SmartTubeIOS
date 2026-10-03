@@ -33,6 +33,10 @@ public final class HomeViewModel {
     /// Continuation token from the last FEshorts fetch; used by loadMoreShortsIfNeeded.
     private var shortsNextPageToken: String? = nil
     private var isLoadingMoreShorts: Bool = false
+    public var canLoadMoreShorts: Bool {
+        shortsNextPageToken != nil || sections.contains { $0.section.type == .subscriptions && $0.nextPageToken != nil }
+    }
+    public var isPagingShorts: Bool { isLoadingMoreShorts }
     /// Background cascade started after `load()` finishes; keeps paging Shorts
     /// content toward `preloadMoreShorts`'s threshold. Cancelled on the next `load()`.
     private var shortsPreloadTask: Task<Void, Never>? = nil

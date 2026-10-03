@@ -45,6 +45,7 @@ public struct AppSettings: Codable {
     // MARK: UI
     public var defaultSection: String
     public var feedCountryCode: String
+    public var homeVideoFilter: HomeVideoFilter
     public var compactThumbnails: Bool
     /// Loads 1280×720 CDN thumbnails instead of the smaller API-provided ones.
     public var highResThumbnails: Bool
@@ -273,6 +274,7 @@ public struct AppSettings: Codable {
         queueShuffleEnabled = false
         defaultSection = BrowseSection.SectionType.home.rawValue
         feedCountryCode = FeedCountry.defaultCode
+        homeVideoFilter = HomeVideoFilter()
         compactThumbnails = false
         highResThumbnails = false
         hideWatchedVideos = false
@@ -363,6 +365,7 @@ extension AppSettings {
         case queueShuffleEnabled
         case defaultSection
         case feedCountryCode
+        case homeVideoFilter
         case compactThumbnails
         case highResThumbnails
         case hideWatchedVideos
@@ -418,6 +421,7 @@ extension AppSettings {
         defaultSection = c.safeDecode(String.self, forKey: .defaultSection, default: d.defaultSection)
         feedCountryCode = FeedCountry.normalized(
             c.safeDecode(String.self, forKey: .feedCountryCode, default: d.feedCountryCode))
+        homeVideoFilter = c.safeDecode(HomeVideoFilter.self, forKey: .homeVideoFilter, default: d.homeVideoFilter)
         compactThumbnails = c.safeDecode(Bool.self, forKey: .compactThumbnails, default: d.compactThumbnails)
         highResThumbnails = c.safeDecode(Bool.self, forKey: .highResThumbnails, default: d.highResThumbnails)
         hideWatchedVideos = c.safeDecode(Bool.self, forKey: .hideWatchedVideos, default: d.hideWatchedVideos)

@@ -158,39 +158,9 @@ public struct ChannelView: View {
     }
 
     private var filterBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: AppSymbol.search).foregroundStyle(.secondary)
-                TextField("Search loaded videos", text: $filter.query)
-                    .accessibilityIdentifier(AccessibilityID.Channel.search)
-                Button {
-                    showsFilters = true
-                } label: {
-                    Label(
-                        filter.activeCount == 0 ? "Filters" : "Filters (\(filter.activeCount))",
-                        systemImage: AppSymbol.filters)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier(AccessibilityID.Channel.filtersButton)
-            }
-            Picker("Membership", selection: $filter.access) {
-                ForEach(ChannelVideoFilter.Access.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier(AccessibilityID.Channel.access)
-            HStack {
-                Text("\(filteredVideos.count) matching · \(vm.videos.count) loaded")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                if filter.isActive {
-                    Button("Clear") { filter = ChannelVideoFilter() }
-                        .font(.caption)
-                        .accessibilityIdentifier(AccessibilityID.Channel.reset)
-                }
-            }
+        ChannelBrowseHeader(filter: $filter, matchingCount: filteredVideos.count, loadedCount: vm.videos.count) {
+            showsFilters = true
         }
-        .padding()
-        .background(.background)
     }
 
     private var paginationFooter: some View {
@@ -313,33 +283,42 @@ public struct ChannelView: View {
     }
 
     private func channelHeader(_ channel: Channel) -> some View {
-        HStack(spacing: 16) {
-            AsyncImage(url: channel.thumbnailURL) { img in
-                img.resizable().scaledToFill()
-            } placeholder: {
-                Circle().fill(Color.secondary.opacity(0.3))
-            }
-            .frame(width: 72, height: 72)
-            .clipShape(Circle())
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 16) {
+                AsyncImage(url: channel.thumbnailURL) { img in
+                    img.resizable().scaledToFill()
+                } placeholder: {
+                    Circle().fill(Color.secondary.opacity(0.3))
+                }
+                .frame(width: 72, height: 72)
+                .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(channel.title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .accessibilityIdentifier(AccessibilityID.Channel.title)
-                if let subs = channel.subscriberCount {
-                    Text(subs)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                if let desc = channel.description, !desc.isEmpty {
-                    Text(desc)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(channel.title)
+                        .font(.title2.weight(.semibold))
                         .lineLimit(2)
+                        .accessibilityIdentifier(AccessibilityID.Channel.title)
+                    if let subs = channel.subscriberCount?.trimmingCharacters(in: .whitespacesAndNewlines),
+                        !subs.isEmpty
+                    {
+                        Text(subs)
+                            .font(.subheadline.weight(.semibold))
+                            .accessibilityIdentifier(AccessibilityID.Channel.subscribers)
+                    } else {
+                        Text("Subscriber count unavailable")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(AccessibilityID.Channel.subscribers)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer()
+            if let desc = channel.description, !desc.isEmpty {
+                Text(desc)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             if !auth.isSignedIn {
                 Button {
                     Task { await toggleFollow(channel) }

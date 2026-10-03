@@ -24,6 +24,10 @@ struct ChannelDestination: Identifiable, Hashable {
 
 // MARK: - Shared layout constants
 
+enum BrowseHeaderLayout {
+    static let controlSize: CGFloat = 44
+}
+
 /// tvOS: fixed 4 columns (flexible) — predictable across all TV sizes.
 #if os(tvOS)
 let videoGridColumns = [
@@ -131,14 +135,20 @@ enum AppSymbol {
 
     // MARK: - Navigation / chevrons
     static let chevronLeft = "chevron.left"
+    static let chevronRight = "chevron.right"
     static let chevronUp = "chevron.up"
     static let chevronDown = "chevron.down"
     static let topics = "square.grid.2x2"
     static let globe = "globe"
     static let filters = "line.3.horizontal.decrease.circle"
+    static let sort = "arrow.up.arrow.down"
+    static let grouping = "rectangle.3.group"
     static let membersOnly = "lock.fill"
 
     // MARK: - Playback controls
+    static let play = "play.fill"
+    static let pause = "pause.fill"
+    static let expandVideo = "arrow.up.left.and.arrow.down.right"
     static let previousTrack = "backward.end.fill"
     static let nextTrack = "forward.end.fill"
     static let previousChapter = "backward.end.alt.fill"
@@ -159,6 +169,7 @@ enum AppSymbol {
     // MARK: - Status / info
     static let warning = "exclamationmark.triangle.fill"
     static let clock = "clock"
+    static let calendar = "calendar"
     static let questionCircle = "questionmark.circle"
     static let qrcode = "qrcode"
     static let colorSwatch = "circle.fill"

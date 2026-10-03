@@ -793,14 +793,18 @@ extension InnerTubeAPI {
             return PlaybackTrackingURLs(playbackURL: playbackURL, watchtimeURL: watchtimeURL)
         }()
 
+        let publicationDate = playerPublicationDate(from: json)
         let video = Video(
             id: videoId,
             title: title,
             channelTitle: channelTitle,
+            channelId: videoDetails?["channelId"] as? String,
             description: description,
             thumbnailURL: thumbURL,
             duration: duration,
             viewCount: viewCount,
+            publishedAt: publicationDate.flatMap(Video.parsePublicationDate),
+            publishedDateText: publicationDate,
             isLive: isLive
         )
 
@@ -821,6 +825,15 @@ extension InnerTubeAPI {
         return PlayerInfo(
             video: video, formats: formats, hlsURL: hlsURL, dashURL: dashURL, captionTracks: captionTracks,
             trackingURLs: trackingURLs, endCards: endCards)
+    }
+
+    private func playerPublicationDate(from json: [String: Any]) -> String? {
+        guard let microformat = json["microformat"] as? [String: Any] else { return nil }
+        let renderer =
+            microformat["playerMicroformatRenderer"] as? [String: Any]
+            ?? microformat["microformatDataRenderer"] as? [String: Any]
+        return [renderer?["publishDate"] as? String, renderer?["uploadDate"] as? String]
+            .compactMap { $0 }.first { Video.parsePublicationDate($0) != nil }
     }
 
     // MARK: – End cards parser

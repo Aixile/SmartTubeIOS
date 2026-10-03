@@ -83,10 +83,22 @@ public struct HomeView: View {
     // MARK: - Body
 
     public var body: some View {
+        @Bindable var settingsStore = store
         VStack(spacing: 0) {
+            #if os(tvOS)
             chipBar
+            #else
+            HomeBrowseHeader(
+                sections: visibleSections, selectedSection: selectedSection,
+                topics: topicsVM, onSelect: selectSection,
+                filter: $settingsStore.settings.homeVideoFilter)
+            #endif
             if selectedSection.type == .home || selectedSection.type == .recommended {
                 RecommendationTopicBar(model: topicsVM)
+                #if os(tvOS)
+                HomeFiltersButton(filter: $settingsStore.settings.homeVideoFilter)
+                #endif
+                HomeFilterSummary(filter: $settingsStore.settings.homeVideoFilter)
             }
             #if !os(tvOS)
             Divider()
@@ -211,19 +223,7 @@ public struct HomeView: View {
 
     private func chipButton(section: BrowseSection) -> some View {
         let isSelected = selectedSection == section
-        let action = {
-            let isNewSection = selectedSection != section
-            if isNewSection { selectedSection = section }
-            guard section.type != .home else { return }
-            if isNewSection {
-                sectionVM.select(section: section)
-            } else if sectionVM.videoGroups.isEmpty && !sectionVM.isLoading {
-                // Same chip re-tapped on an empty section — retry the load.
-                // This handles failed fetches or cases where an observation gap
-                // left the view showing an empty state despite data being available.
-                sectionVM.reload(section: section)
-            }
-        }
+        let action = { selectSection(section) }
         #if os(tvOS)
         let isFocused = focusedSection == section
         return Button(action: action) {
@@ -272,11 +272,26 @@ public struct HomeView: View {
         #endif
     }
 
+    private func selectSection(_ section: BrowseSection) {
+        let isNewSection = selectedSection != section
+        if isNewSection { selectedSection = section }
+        guard section.type != .home else { return }
+        if isNewSection {
+            sectionVM.select(section: section)
+        } else if sectionVM.videoGroups.isEmpty && !sectionVM.isLoading {
+            sectionVM.reload(section: section)
+        }
+    }
+
     // MARK: - Content area
 
     @ViewBuilder
     private var contentArea: some View {
-        if topicsVM.selectedTopic != nil, selectedSection.type == .home || selectedSection.type == .recommended {
+        if store.settings.homeVideoFilter.isActive,
+            selectedSection.type == .home || selectedSection.type == .recommended
+        {
+            filteredRecommendationFeed
+        } else if topicsVM.selectedTopic != nil, selectedSection.type == .home || selectedSection.type == .recommended {
             TopicRecommendationsView(model: topicsVM, settings: store.settings) { video, videos in
                 selectVideo(video, from: videos)
             }
@@ -292,6 +307,59 @@ public struct HomeView: View {
         } else {
             sectionFeed
                 .accessibilityIdentifier("home.sectionContainer")
+        }
+    }
+
+    @ViewBuilder
+    private var filteredRecommendationFeed: some View {
+        if let topic = topicsVM.selectedTopic {
+            HomeFilteredFeed(
+                sourceVideos: topicsVM.videos, isLoading: topicsVM.isLoading,
+                hasMore: topicsVM.nextPageToken != nil, errorMessage: topicsVM.errorMessage,
+                loadMore: { topicsVM.retry() }, refresh: { await topicsVM.refreshSelectedTopic() },
+                onSelect: { selectVideo($0, from: $1) }
+            )
+            .id(topic.id)
+        } else if selectedSection.type == .home {
+            if auth.isSignedIn {
+                HomeFilteredFeed(
+                    sourceVideos: homeVM.homeRegularVideos + homeVM.homeShortsVideos,
+                    isLoading: homeVM.isLoadingAny || homeVM.sections.contains { $0.isLoadingMore }
+                        || homeVM.isPagingShorts,
+                    hasMore: filteredHomeHasMore, errorMessage: nil,
+                    loadMore: { loadMoreFilteredHome() }, refresh: { homeVM.load() },
+                    onSelect: { selectVideo($0, from: $1) })
+            } else {
+                homeSignedOutPrompt
+            }
+        } else {
+            HomeFilteredFeed(
+                sourceVideos: sectionVM.videoGroups.flatMap(\.videos) + sectionVM.recommendedShortsVideos,
+                isLoading: sectionVM.isLoading || sectionVM.isLoadingMore,
+                hasMore: sectionVM.videoGroups.last?.nextPageToken != nil,
+                errorMessage: sectionVM.error == nil ? nil : "Couldn’t load more videos. Please try again.",
+                loadMore: {
+                    if let last = sectionVM.videoGroups.last?.videos.last {
+                        sectionVM.loadMoreIfNeeded(lastVideo: last)
+                    }
+                }, refresh: { sectionVM.loadContent(refresh: true) },
+                onSelect: { selectVideo($0, from: $1) })
+        }
+    }
+
+    private var homeHasMoreMerged: Bool { homeVM.sections.contains { $0.nextPageToken != nil } }
+
+    private var filteredHomeHasMore: Bool {
+        homeHasMoreMerged || (store.settings.homeVideoFilter.kind != .videos && homeVM.canLoadMoreShorts)
+    }
+
+    private func loadMoreFilteredHome() {
+        if store.settings.homeVideoFilter.kind == .shorts && homeVM.canLoadMoreShorts {
+            homeVM.loadNextShortsPage()
+        } else if homeHasMoreMerged {
+            homeVM.loadMoreMerged()
+        } else {
+            homeVM.loadNextShortsPage()
         }
     }
 

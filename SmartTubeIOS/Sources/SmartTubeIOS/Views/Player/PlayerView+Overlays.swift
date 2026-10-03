@@ -85,7 +85,7 @@ extension PlayerView {
     /// Rendered inside the player's ZStack so no UIKit sheet presentation
     /// fires onDisappear and teardowns the action sheet mid-animation.
     var moreMenuOverlay: some View {
-        let currentVideo = vm.playerInfo?.video ?? video
+        let currentVideo = vm.videoDetails(fallback: video)
         menuLog.notice(
             "[moreMenu] rendering — video=\(currentVideo.id) availableFormats=\(vm.availableFormats.count) isSignedIn=\(authService.isSignedIn)"
         )
@@ -157,7 +157,7 @@ extension PlayerView {
     }
 
     @ViewBuilder private var moreMenuItems: some View {
-        let currentVideo = vm.playerInfo?.video ?? video
+        let currentVideo = vm.videoDetails(fallback: video)
         VStack(spacing: 0) {
             // Centered title header
             VStack(spacing: 2) {
@@ -227,7 +227,7 @@ extension PlayerView {
     // MARK: - Description overlay
 
     var descriptionOverlay: some View {
-        let currentVideo = vm.playerInfo?.video ?? video
+        let currentVideo = vm.videoDetails(fallback: video)
         let description = currentVideo.description ?? ""
         return ZStack(alignment: .bottom) {
             Color.black.opacity(0.5)
@@ -256,11 +256,18 @@ extension PlayerView {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(currentVideo.title)
                             .font(.headline)
-                        if !currentVideo.channelTitle.isEmpty {
-                            Text(currentVideo.channelTitle)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        PlayerUploaderRow(video: currentVideo) {
+                            guard let cid = currentVideo.channelId, !cid.isEmpty else { return }
+                            showDescriptionSheet = false
+                            #if os(iOS)
+                            NotificationCenter.default.post(
+                                name: .openChannel, object: nil, userInfo: ["channelId": cid])
+                            if store.settings.miniPlayerEnabled { playerState.minimize() } else { playerState.stop() }
+                            #else
+                            channelDestination = ChannelDestination(channelId: cid)
+                            #endif
                         }
+                        PlayerPublicationInfo(video: currentVideo)
                         if !description.isEmpty {
                             Text(descriptionAttributedString(description))
                                 .font(.body)
@@ -335,7 +342,7 @@ extension PlayerView {
     // MARK: - Comments loading
 
     func loadComments() {
-        let videoId = (vm.playerInfo?.video ?? video).id
+        let videoId = (vm.videoDetails(fallback: video)).id
         vm.comments.load(videoId: videoId)
     }
 
@@ -469,7 +476,7 @@ extension PlayerView {
         #if os(iOS)
         Button {
             showMoreMenu = false
-            if let url = (vm.playerInfo?.video ?? video).shareURL {
+            if let url = (vm.videoDetails(fallback: video)).shareURL {
                 presentShareSheet(url: url)
             }
         } label: {
@@ -552,7 +559,7 @@ extension PlayerView {
     }
 
     @ViewBuilder private var moreMenuQueueShuffleRow: some View {
-        if (vm.playerInfo?.video ?? video).playlistId == CurrentQueueStore.playlistID {
+        if (vm.videoDetails(fallback: video)).playlistId == CurrentQueueStore.playlistID {
             Button {
                 menuLog.notice(
                     "[moreMenu] Queue Shuffle row tapped — toggling queueShuffleEnabled: \(store.settings.queueShuffleEnabled) → \(!store.settings.queueShuffleEnabled)"
@@ -592,7 +599,7 @@ extension PlayerView {
         #if !os(tvOS)
         Button {
             showMoreMenu = false
-            downloadService.download(video: vm.playerInfo?.video ?? video)
+            downloadService.download(video: vm.videoDetails(fallback: video))
         } label: {
             Group {
                 if downloadService.state.isActive {
@@ -676,7 +683,7 @@ extension PlayerView {
     }
 
     @ViewBuilder private var moreMenuDescriptionRow: some View {
-        let currentVideo = vm.playerInfo?.video ?? video
+        let currentVideo = vm.videoDetails(fallback: video)
         if !(currentVideo.description ?? "").isEmpty {
             Button {
                 showMoreMenu = false

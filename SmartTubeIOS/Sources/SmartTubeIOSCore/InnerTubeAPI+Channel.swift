@@ -156,17 +156,20 @@ extension InnerTubeAPI {
         let header =
             headerDict?["c4TabbedHeaderRenderer"] as? [String: Any]
             ?? headerDict?["pageHeaderRenderer"] as? [String: Any]
+        let headerViewModel = (header?["content"] as? [String: Any])?["pageHeaderViewModel"] as? [String: Any]
         let title =
             header.flatMap { $0["title"] as? String }
             ?? (header?["pageTitle"] as? String)
             ?? {
                 // pageHeaderRenderer uses content.pageHeaderViewModel.title.content
-                if let content = (header?["content"] as? [String: Any])?["pageHeaderViewModel"] as? [String: Any] {
-                    return (content["title"] as? [String: Any]).flatMap { extractText($0) }
-                        ?? content["title"] as? String
+                if let content = headerViewModel {
+                    return (content["title"] as? [String: Any]).flatMap {
+                        $0["content"] as? String ?? extractText($0)
+                    } ?? content["title"] as? String
                 }
                 return nil
             }()
+            ?? ((json["metadata"] as? [String: Any])?["channelMetadataRenderer"] as? [String: Any])?["title"] as? String
             ?? ""
         tubeLog.notice(
             "parseChannel header=\(header != nil ? "found" : "nil", privacy: .public) title='\(title, privacy: .public)'"
@@ -201,7 +204,7 @@ extension InnerTubeAPI {
             }
             return nil
         }()
-        let subscribers = header.flatMap { $0["subscriberCountText"] as? [String: Any] }.flatMap { extractText($0) }
+        let subscribers = channelSubscriberCount(header: header, viewModel: headerViewModel)
 
         // Prefer the canonical UC… channelId from channelMetadataRenderer.externalId over
         // the browseId parameter — when a @handle is passed as browseId the parameter is
@@ -230,6 +233,32 @@ extension InnerTubeAPI {
         )
         let videoGroup = try parseVideoGroup(from: json, title: title, includeMembersOnly: true)
         return (channel, videoGroup)
+    }
+
+    private func channelSubscriberCount(header: [String: Any]?, viewModel: [String: Any]?) -> String? {
+        if let legacy = (header?["subscriberCountText"] as? [String: Any]).flatMap({ extractText($0) }),
+            !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return legacy
+        }
+        let metadata = (viewModel?["metadata"] as? [String: Any])?["contentMetadataViewModel"] as? [String: Any]
+        let rows = metadata?["metadataRows"] as? [[String: Any]] ?? []
+        for row in rows {
+            let parts = row["metadataParts"] as? [[String: Any]] ?? []
+            for part in parts {
+                guard let text = part["text"] as? [String: Any],
+                    let value = text["content"] as? String ?? extractText(text)
+                else { continue }
+                let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Requests use hl=en. Match the subscriber part, never a handle or video count.
+                if !cleaned.hasPrefix("@"),
+                    cleaned.range(of: #"\bsubscribers?\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+                {
+                    return cleaned
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: – Guide channels parser (/guide endpoint)

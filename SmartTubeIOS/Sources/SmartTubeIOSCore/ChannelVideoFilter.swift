@@ -2,7 +2,7 @@ import Foundation
 
 /// Local refinements of the channel videos already returned by YouTube.
 public struct ChannelVideoFilter: Equatable, Sendable {
-    public enum Kind: String, CaseIterable, Sendable {
+    public enum Kind: String, CaseIterable, Codable, Sendable {
         case all = "All"
         case videos = "Videos"
         case shorts = "Shorts"
@@ -15,13 +15,13 @@ public struct ChannelVideoFilter: Equatable, Sendable {
         case members = "Members only"
     }
 
-    public enum WatchStatus: String, CaseIterable, Sendable {
+    public enum WatchStatus: String, CaseIterable, Codable, Sendable {
         case all = "Any watch status"
         case unwatched = "Unwatched"
         case watched = "Watched"
     }
 
-    public enum Duration: String, CaseIterable, Sendable {
+    public enum Duration: String, CaseIterable, Codable, Sendable {
         case all = "Any duration"
         case short = "Under 4 minutes"
         case medium = "4–20 minutes"

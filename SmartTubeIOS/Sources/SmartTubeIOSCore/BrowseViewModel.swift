@@ -36,7 +36,7 @@ public final class BrowseViewModel {
     /// True while a pagination (loadMore) request is in flight. Distinct from `isLoading`,
     /// which covers the initial/refresh fetch. Keeping these separate prevents the preload
     /// cache work that follows the initial fetch from blocking subsequent loadMore calls.
-    private var isLoadingMore: Bool = false
+    public private(set) var isLoadingMore: Bool = false
     public var error: Error?
     /// True when the current section requires authentication and the user is not signed in.
     public private(set) var isAuthRequired: Bool = false

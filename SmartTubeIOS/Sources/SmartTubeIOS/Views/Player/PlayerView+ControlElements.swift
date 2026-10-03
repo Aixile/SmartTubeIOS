@@ -44,7 +44,8 @@ struct PlayerControlsOverlay: View {
     @Environment(SettingsStore.self) var store
     @Environment(\.dismiss) var dismiss
     var body: some View {
-        VStack {
+        let currentVideo = vm.videoDetails(fallback: video)
+        return VStack {
             // Top bar: back + title
             HStack {
                 #if os(tvOS)
@@ -79,19 +80,19 @@ struct PlayerControlsOverlay: View {
                 .accessibilityIdentifier("player.backButton")
                 #endif
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(vm.playerInfo?.video.title ?? video.title)
+                    Text(currentVideo.title)
                         .font(.headline)
                         .foregroundStyle(.white)
-                        .lineLimit(1)
+                        .lineLimit(size.width > size.height ? 1 : 2)
                         .accessibilityIdentifier("player.titleLabel")
-                    let channelId = vm.playerInfo?.video.channelId ?? video.channelId
-                    let channelTitle = vm.playerInfo?.video.channelTitle ?? video.channelTitle
                     #if os(tvOS)
+                    let channelId = currentVideo.channelId
+                    let channelTitle = currentVideo.channelTitle
                     tvOverlayControl(
                         highlighted: highlightedControl == .channel,
                         scale: 1.5,
                         shadowRadius: 12,
-                        identifier: "player.channelName",
+                        identifier: AccessibilityID.Player.channel,
                         enabled: channelId?.isEmpty == false
                     ) {
                         Text(channelTitle)
@@ -99,32 +100,6 @@ struct PlayerControlsOverlay: View {
                             .foregroundStyle(.white.opacity(0.8))
                             .lineLimit(1)
                     }
-                    #else
-                    Button {
-                        guard let cid = channelId, !cid.isEmpty else { return }
-                        #if os(iOS)
-                        // PlayerView is presented via fullScreenCover — there is no
-                        // NavigationStack, so setting channelDestination is a no-op.
-                        // Post the shared notification instead (same path as VideoCardView),
-                        // then dismiss the player so the parent can push ChannelView.
-                        NotificationCenter.default.post(
-                            name: .openChannel,
-                            object: nil,
-                            userInfo: ["channelId": cid]
-                        )
-                        dismiss()
-                        #else
-                        channelDestination = ChannelDestination(channelId: cid)
-                        #endif
-                    } label: {
-                        Text(channelTitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.8))
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("player.channelName")
-                    .disabled(channelId == nil || channelId?.isEmpty == true)
                     #endif
                 }
                 Spacer()
@@ -190,6 +165,22 @@ struct PlayerControlsOverlay: View {
             #else
             .padding(.top, max(safeAreaInsets.top, 20))
             #endif
+
+            VStack(spacing: 8) {
+                #if !os(tvOS)
+                PlayerUploaderRow(video: currentVideo, foreground: .white) {
+                    guard let cid = currentVideo.channelId, !cid.isEmpty else { return }
+                    #if os(iOS)
+                    NotificationCenter.default.post(name: .openChannel, object: nil, userInfo: ["channelId": cid])
+                    if store.settings.miniPlayerEnabled { playerState.minimize() } else { playerState.stop() }
+                    #else
+                    channelDestination = ChannelDestination(channelId: cid)
+                    #endif
+                }
+                #endif
+                PlayerPublicationInfo(video: currentVideo, foreground: .white.opacity(0.9))
+            }
+            .padding(.horizontal, 20)
 
             Spacer()
 
