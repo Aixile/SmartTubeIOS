@@ -54,22 +54,22 @@ final class OrientationCrashRegressionUITests: XCTestCase {
         // Rotate to landscape — triggers OrientationManager.requestGeometryUpdate(.landscape)
         #if os(iOS)
         XCUIDevice.shared.orientation = .landscapeLeft
-        // Brief dwell to allow UIKit geometry update to complete and any error callback to fire.
-        Thread.sleep(forTimeInterval: 1.0)
+        waitForOrientation(landscape: true)
 
         // Rotate back to portrait — triggers OrientationManager.requestGeometryUpdate(.portrait)
         #if os(iOS)
         XCUIDevice.shared.orientation = .portrait
         #endif
-        Thread.sleep(forTimeInterval: 1.0)
+        waitForOrientation(landscape: false)
 
         // A second full cycle verifies the geometry update is repeatable.
         #if os(iOS)
         XCUIDevice.shared.orientation = .landscapeRight
         #endif
-        Thread.sleep(forTimeInterval: 1.0)
+        waitForOrientation(landscape: true)
         #if os(iOS)
         XCUIDevice.shared.orientation = .portrait
+        waitForOrientation(landscape: false)
         #endif
         #endif
 
@@ -77,5 +77,20 @@ final class OrientationCrashRegressionUITests: XCTestCase {
         XCTAssertTrue(
             player.exists,
             "Player must still exist after landscape ↔ portrait rotation cycle")
+    }
+
+    private func waitForOrientation(landscape: Bool) {
+        guard let application = app else {
+            XCTFail("Application must be initialized before checking orientation")
+            return
+        }
+        let predicate = NSPredicate { _, _ in
+            let frame = application.windows.firstMatch.frame
+            return landscape ? frame.width > frame.height : frame.height > frame.width
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 3), .completed,
+            "Player should promptly rotate to \(landscape ? "landscape" : "portrait")")
     }
 }

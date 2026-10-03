@@ -148,7 +148,7 @@ extension InnerTubeAPI {
 
     /// Fetches player data using current yt-dlp's primary JS-less visionOS client.
     public func fetchPlayerInfoVisionOS(videoId: String) async throws -> PlayerInfo {
-        await seedVisionOSSession(videoId: videoId)
+        let publicationDate = await seedVisionOSSession(videoId: videoId)
         var clientFields = (visionOSClientContext["client"] as? [String: Any]) ?? [:]
         if let vd = visitorData { clientFields["visitorData"] = vd }
         var body = makeBody(client: ["client": clientFields])
@@ -159,7 +159,7 @@ extension InnerTubeAPI {
             "contentPlaybackContext": ["html5Preference": "HTML5_PREF_WANTS"]
         ]
         let data = try await postVisionOS(body: body)
-        return try parsePlayerInfo(from: data, videoId: videoId)
+        return try parsePlayerInfo(from: data, videoId: videoId, fallbackPublicationDate: publicationDate)
     }
 
     /// Fetches player info using the WEB_EMBEDDED_PLAYER client (nameID=56).
@@ -623,7 +623,9 @@ extension InnerTubeAPI {
 
     // MARK: - Private player helpers
 
-    private func parsePlayerInfo(from json: [String: Any], videoId: String) throws -> PlayerInfo {
+    private func parsePlayerInfo(
+        from json: [String: Any], videoId: String, fallbackPublicationDate: String? = nil
+    ) throws -> PlayerInfo {
         let videoDetails = json["videoDetails"] as? [String: Any]
         let title = videoDetails?["title"] as? String ?? ""
         let channelTitle = videoDetails?["author"] as? String ?? ""
@@ -793,7 +795,7 @@ extension InnerTubeAPI {
             return PlaybackTrackingURLs(playbackURL: playbackURL, watchtimeURL: watchtimeURL)
         }()
 
-        let publicationDate = playerPublicationDate(from: json)
+        let publicationDate = playerPublicationDate(from: json) ?? fallbackPublicationDate
         let video = Video(
             id: videoId,
             title: title,

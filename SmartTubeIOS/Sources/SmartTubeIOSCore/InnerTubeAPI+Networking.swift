@@ -42,14 +42,14 @@ extension InnerTubeAPI {
     /// before its JS-less VisionOS player request. The watch-page response seeds
     /// youtube.com cookies and exposes visitorData required to avoid false
     /// `LOGIN_REQUIRED` bot-detection responses on otherwise public videos.
-    func seedVisionOSSession(videoId: String) async {
+    func seedVisionOSSession(videoId: String) async -> String? {
         var components = URLComponents(string: "https://www.youtube.com/watch")!
         components.queryItems = [
             URLQueryItem(name: "v", value: videoId),
             URLQueryItem(name: "bpctr", value: "9999999999"),
             URLQueryItem(name: "has_verified", value: "1"),
         ]
-        guard let url = components.url else { return }
+        guard let url = components.url else { return nil }
 
         if let consentCookie = HTTPCookie(properties: [
             .domain: ".youtube.com",
@@ -71,14 +71,17 @@ extension InnerTubeAPI {
             let http = response as? HTTPURLResponse,
             (200..<300).contains(http.statusCode),
             let html = String(data: data, encoding: .utf8)
-        else { return }
+        else { return nil }
+
+        let publicationDate = extractYouTubePublicationDate(from: html, videoID: videoId)
 
         if let value = extractYouTubeVisitorData(from: html) {
             visitorData = value
             tubeLog.notice("VisionOS session seeded (visitorData len=\(value.count, privacy: .public))")
-            return
+            return publicationDate
         }
         tubeLog.notice("VisionOS session watch page loaded without visitorData")
+        return publicationDate
     }
 
     // MARK: - signatureTimestamp fetch

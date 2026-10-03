@@ -8,8 +8,17 @@ private final class PlayerMetadataURLProtocol: URLProtocol, @unchecked Sendable 
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let json =
+        var json =
             #"{"playabilityStatus":{"status":"OK"},"videoDetails":{"title":"Chinese video","author":"Uploader","channelId":"UC-uploader","viewCount":"1234"},"microformat":{"playerMicroformatRenderer":{"publishDate":"2020-08-23","uploadDate":"2020-08-21"}},"streamingData":{"hlsManifestUrl":"https://example.invalid/master.m3u8"}}"#
+        if request.value(forHTTPHeaderField: "X-Player-Fixture") == "watchPage" {
+            if request.httpMethod == "GET" {
+                json =
+                    #"<link rel="canonical" href="https://www.youtube.com/watch?v=fixture1234"><meta itemprop="datePublished" content="2020-08-23"><script>ytcfg.set({"VISITOR_DATA":"visitor-fixture"});</script>"#
+            } else {
+                json =
+                    #"{"playabilityStatus":{"status":"OK"},"videoDetails":{"title":"Chinese video","author":"Uploader","channelId":"UC-uploader"},"streamingData":{"hlsManifestUrl":"https://example.invalid/master.m3u8"}}"#
+            }
+        }
         guard let url = request.url,
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
         else { return }
@@ -33,6 +42,43 @@ struct PlayerVideoMetadataTests {
         #expect(info.video.publishedDateText == "2020-08-23")
         #expect(info.video.publishedAt == Video.parsePublicationDate("2020-08-23"))
         #expect(info.video.viewCount == 1234)
+    }
+
+    @Test("Native playback recovers a missing date from its existing session watch request")
+    func visionOSUsesWatchPageDate() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlayerMetadataURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Player-Fixture": "watchPage"]
+        let api = InnerTubeAPI(authToken: nil, session: URLSession(configuration: configuration))
+        let info = try await api.fetchPlayerInfoVisionOS(videoId: "fixture1234")
+        #expect(info.video.publishedDateText == "2020-08-23")
+        #expect(info.video.publishedAt == Video.parsePublicationDate("2020-08-23"))
+    }
+
+    @Test("Watch date extraction accepts either attribute order and preserves the publication day")
+    func watchDateAttributes() {
+        let html =
+            #"<LINK href='https://www.youtube.com/watch?v=fixture1234' rel='canonical'><META CONTENT='2020-08-23T19:30:00-07:00' ITEMPROP='datePublished'><meta itemprop='uploadDate' content='2020-08-21'>"#
+        #expect(extractYouTubePublicationDate(from: html, videoID: "fixture1234") == "2020-08-23")
+    }
+
+    @Test("Watch dates reject redirected pages and unrelated video dates")
+    func watchDateIdentity() {
+        let wrongVideo =
+            #"<link rel="canonical" href="https://www.youtube.com/watch?v=other123456"><meta itemprop="datePublished" content="2020-08-23">"#
+        #expect(extractYouTubePublicationDate(from: wrongVideo, videoID: "fixture1234") == nil)
+        let suggestionsOnly =
+            #"<meta property="og:url" content="https://www.youtube.com/watch?v=fixture1234"><script>{"relatedVideos":[{"publishDate":"2020-08-23"}]}</script>"#
+        #expect(extractYouTubePublicationDate(from: suggestionsOnly, videoID: "fixture1234") == nil)
+        let noIdentity = #"<meta itemprop="datePublished" content="2020-08-23">"#
+        #expect(extractYouTubePublicationDate(from: noIdentity, videoID: "fixture1234") == nil)
+    }
+
+    @Test("An invalid publication day can fall back to the watch page's upload date")
+    func invalidWatchDateFallback() {
+        let html =
+            #"<meta property="og:url" content="https://www.youtube.com/watch?v=fixture1234&amp;feature=share"><meta itemprop="datePublished" content="2020-02-30"><meta content="2020-08-21" itemprop="uploadDate">"#
+        #expect(extractYouTubePublicationDate(from: html, videoID: "fixture1234") == "2020-08-21")
     }
 
     @Test("Sparse streaming metadata preserves the feed channel and relative date")

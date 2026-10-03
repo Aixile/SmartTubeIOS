@@ -39,10 +39,20 @@ public final class OrientationManager {
                 return
             }
             orientationLog.notice("[OrientationManager] playerIsActive: \(oldValue) → \(self.playerIsActive)")
-            invalidateOrientationCache()
-            let mask: UIInterfaceOrientationMask = playerIsActive ? .landscape : .portrait
-            requestGeometryUpdate(mask)
+            restoreInterfaceOrientation()
         }
+    }
+
+    /// Advertise only the chosen layout, so UIKit cannot independently rotate a
+    /// landscape-locked player back to portrait.
+    var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        playerIsActive ? .landscape : .portrait
+    }
+
+    /// Reapply the mask after unlocking even when the desired layout is unchanged.
+    func restoreInterfaceOrientation() {
+        invalidateOrientationCache()
+        requestGeometryUpdate()
     }
 
     // MARK: - Private helpers
@@ -71,19 +81,23 @@ public final class OrientationManager {
         }
     }
 
-    private func requestGeometryUpdate(_ mask: UIInterfaceOrientationMask) {
+    private func requestGeometryUpdate() {
         Task { @MainActor [weak self] in
-            guard self != nil else { return }
+            // Brief yield so UIKit processes setNeedsUpdateOfSupportedInterfaceOrientations
+            // before requestGeometryUpdate consults the updated mask.
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let self else { return }
             guard
                 let scene = UIApplication.shared.connectedScenes
-                    .compactMap({ $0 as? UIWindowScene }).first
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive })
             else {
                 orientationLog.error("[OrientationManager] requestGeometryUpdate — no UIWindowScene found")
                 return
             }
-            // Brief yield so UIKit processes setNeedsUpdateOfSupportedInterfaceOrientations
-            // before requestGeometryUpdate consults the updated mask.
-            try? await Task.sleep(for: .milliseconds(50))
+            // Read the current mask after yielding; an earlier rotation request
+            // must not undo a newer lock, dismissal, or foreground restoration.
+            let mask = self.supportedInterfaceOrientations
             let pref = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: mask)
             orientationLog.notice(
                 "[OrientationManager] requestGeometryUpdate — requesting mask=\(mask.rawValue) on scene")

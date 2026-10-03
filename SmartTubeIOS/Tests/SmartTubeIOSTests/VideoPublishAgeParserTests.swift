@@ -95,6 +95,10 @@ struct VideoRendererPublishAgeTests {
         #expect(
             abs(publishedAt.timeIntervalSince(expectedDate)) < 7 * 86_400,
             "publishedAt should be approximately 2 years ago")
+        #expect(video.publishedTimeText == "2 years ago")
+        #expect(
+            video.publicationLabel == "2 years ago", "Keep relative feed dates honest instead of inventing an exact day"
+        )
     }
 
     @Test("parseVideoRenderer with runs publishedTimeText populates publishedAt")
@@ -175,6 +179,8 @@ struct LockupViewModelPublishAgeTests {
         let api = InnerTubeAPI()
         let group = try await api.parseVideoGroupForTesting(response, title: nil)
         let video = try #require(group.videos.first, "Expected at least one video from lockupViewModel response")
+        #expect(video.publishedTimeText == "2 years ago")
+        #expect(video.publicationLabel == "2 years ago", "Modern cards should preserve YouTube's upload-age text")
         let publishedAt = try #require(
             video.publishedAt, "publishedAt should be non-nil when metadataRows contain '2 years ago'")
         let expectedDate = approximateDate(yearsAgo: 2)
@@ -197,5 +203,6 @@ struct LockupViewModelPublishAgeTests {
         #expect(
             video.publishedAt == nil,
             "publishedAt should be nil when no row contains a relative date string")
+        #expect(video.publicationLabel == nil)
     }
 }

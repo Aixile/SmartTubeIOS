@@ -1,4 +1,8 @@
 enum AccessibilityID {
+    enum VideoCard {
+        static let uploadTime = "video.card.uploadTime"
+    }
+
     enum MiniPlayer {
         static let window = "miniPlayer.bar"
         static let expand = "miniPlayer.expandButton"

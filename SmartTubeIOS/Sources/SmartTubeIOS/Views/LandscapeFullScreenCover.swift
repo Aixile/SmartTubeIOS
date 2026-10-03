@@ -27,7 +27,7 @@ extension TOSPlayerStateStore: FullScreenPlayerDismissible {}
 
 // MARK: - LandscapeAwareHostingController
 
-/// UIHostingController whose supportedInterfaceOrientations returns .allButUpsideDown
+/// UIHostingController whose supportedInterfaceOrientations returns .landscape
 /// while OrientationManager.shared.playerIsActive is true. This replaces SwiftUI's
 /// internal PresentationHostingController (which hard-locks to portrait) so that UIKit
 /// accepts requestGeometryUpdate(.landscape) and honours physical device rotations
@@ -36,7 +36,7 @@ final class LandscapeAwareHostingController: UIHostingController<AnyView> {
     var onDismiss: (() -> Void)?
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        OrientationManager.shared.playerIsActive ? .allButUpsideDown : .portrait
+        OrientationManager.shared.supportedInterfaceOrientations
     }
 
     override func viewDidDisappear(_ animated: Bool) {

@@ -795,6 +795,7 @@ extension InnerTubeAPI {
             }
         }
 
+        var publishedTimeText: String?
         let publishedAt: Date? = {
             for row in metaRows.dropFirst() {
                 guard let parts = row["metadataParts"] as? [[String: Any]] else { continue }
@@ -802,7 +803,10 @@ extension InnerTubeAPI {
                     guard let text = part["text"] as? [String: Any],
                         let str = text["content"] as? String ?? extractText(text)
                     else { continue }
-                    if let date = parseRelativeDate(str) { return date }
+                    if let date = parseRelativeDate(str) {
+                        publishedTimeText = str
+                        return date
+                    }
                 }
             }
             return nil
@@ -825,7 +829,7 @@ extension InnerTubeAPI {
                 }
                 return nil
             }(),
-            publishedAt: publishedAt,
+            publishedAt: publishedAt, publishedTimeText: publishedTimeText,
             isLive: thumbnailMetadata.isLive, isUpcoming: lockup["upcomingEventData"] != nil,
             isShort: isShort, badges: VideoMembershipParser.badges(in: lockup)
         )

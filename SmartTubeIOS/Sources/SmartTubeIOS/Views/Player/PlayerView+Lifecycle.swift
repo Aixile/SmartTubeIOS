@@ -556,38 +556,7 @@ extension PlayerView {
             // even when it is already in the tree. With this notification, XCTest wakes and
             // finds the element in the next snapshot (~0.1-0.2s). Harmless in production.
             UIAccessibility.post(notification: .screenChanged, argument: nil)
-            swipeLog.notice("[orientation] onAppear — calling beginGeneratingDeviceOrientationNotifications")
-            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
-            let rawOrientation = UIDevice.current.orientation
-            let physicallyLandscape: Bool
-            if rawOrientation.isLandscape || rawOrientation.isPortrait {
-                // OS has delivered a definitive device orientation.
-                physicallyLandscape = rawOrientation.isLandscape
-            } else {
-                // rawOrientation is .unknown, .faceUp, or .faceDown — OS has not yet
-                // delivered the first orientation notification. Fall back to the window
-                // scene's interface orientation, which is always valid (it reflects the
-                // status-bar orientation rather than the physical device sensor).
-                let windowScene = UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }
-                    .first
-                physicallyLandscape = windowScene?.interfaceOrientation.isLandscape ?? false
-                swipeLog.notice(
-                    "[orientation] onAppear — rawOrientation=\(rawOrientation.rawValue) is ambiguous; using windowScene interfaceOrientation=\(windowScene?.interfaceOrientation.rawValue ?? -1)"
-                )
-            }
-            let alwaysPlayOnAppear = store.settings.landscapeAlwaysPlay
-            let isLandscapeOnAppear = alwaysPlayOnAppear || physicallyLandscape
-            vm.isLandscape = isLandscapeOnAppear
-            swipeLog.notice(
-                "[orientation] onAppear — rawOrientation=\(rawOrientation.rawValue) physicallyLandscape=\(physicallyLandscape) landscapeAlwaysPlay=\(alwaysPlayOnAppear) → isLandscape=\(isLandscapeOnAppear)"
-            )
-            if alwaysPlayOnAppear {
-                swipeLog.notice("[orientation] onAppear — landscapeAlwaysPlay=true, setting playerIsActive=true")
-                OrientationManager.shared.playerIsActive = true
-            } else {
-                swipeLog.notice("[orientation] onAppear — landscapeAlwaysPlay=false, playerIsActive remains false")
-            }
+            beginOrientationTracking()
             #endif
             #if os(iOS)
             // On iOS, PlayerStateStore.play(video:) already called vm.load() before
@@ -673,17 +642,13 @@ extension PlayerView {
         .onDisappear {
             swipeLog.notice("[PlayerView] onDisappear id=\(video.id) isInBackground=\(isInBackground)")
             isVisible = false
-            guard !isInBackground else { return }
             #if os(iOS)
-            let rawOrientationOnDisappear = UIDevice.current.orientation
-            swipeLog.notice(
-                "[orientation] onDisappear — rawOrientation=\(rawOrientationOnDisappear.rawValue) isLandscape was \(vm.isLandscape), playerIsActive was \(OrientationManager.shared.playerIsActive)"
-            )
-            OrientationManager.shared.playerIsActive = false
+            // Screen locking can hide this view before scenePhase reaches background.
+            // Only actual dismissal/minimization should reset the orientation.
+            guard playerState.presentation != .fullScreen else { return }
+            orientationState.dismiss()
             vm.isLandscape = false
-            swipeLog.notice(
-                "[orientation] onDisappear — playerIsActive=false isLandscape=false, calling endGeneratingDeviceOrientationNotifications"
-            )
+            OrientationManager.shared.playerIsActive = false
             UIDevice.current.endGeneratingDeviceOrientationNotifications()
             // Skip suspend when minimizing to mini-player — playback should continue.
             guard playerState.presentation != .miniPlayer else { return }
@@ -693,6 +658,7 @@ extension PlayerView {
             pipDelegate = nil
             vm.suspend()
             #else
+            guard !isInBackground else { return }
             vm.suspend()
             #endif
         }
@@ -703,7 +669,14 @@ extension PlayerView {
                 if isVisible { vm.handleBackground() }
             case .active:
                 isInBackground = false
+                #if os(iOS)
+                if playerState.presentation == .fullScreen {
+                    restorePlayerOrientation()
+                    vm.handleForeground()
+                }
+                #else
                 if isVisible { vm.handleForeground() }
+                #endif
             default:
                 break
             }
@@ -736,56 +709,16 @@ extension PlayerView {
         }
         // Keep the controller after PiP stops: playback may remain active, so there
         // may be no new isPlaying change to recreate it before the next PiP request.
-        // Update isLandscape when the device physically rotates.
+        // Ignore sensor changes while locking/backgrounded; restore the last
+        // foreground layout when the scene becomes active again.
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            let orientation = UIDevice.current.orientation
-            swipeLog.notice(
-                "[orientation] orientationDidChange — rawValue=\(orientation.rawValue) isValidInterfaceOrientation=\(orientation.isValidInterfaceOrientation) isLandscape=\(orientation.isLandscape) isPortrait=\(orientation.isPortrait)"
-            )
-            guard orientation.isValidInterfaceOrientation else {
-                swipeLog.notice(
-                    "[orientation] orientationDidChange — skipped (not a valid interface orientation, e.g. face-up/face-down/unknown)"
-                )
-                return
-            }
-            let alwaysLandscape = store.settings.landscapeAlwaysPlay
-            let physicalLandscape = orientation.isLandscape
-            let newIsLandscape = isLandscapeLocked || alwaysLandscape || physicalLandscape
-            let prevIsLandscape = vm.isLandscape
-            let prevPlayerIsActive = OrientationManager.shared.playerIsActive
-            vm.isLandscape = newIsLandscape
-            OrientationManager.shared.playerIsActive = newIsLandscape
-            swipeLog.notice(
-                "[orientation] orientationDidChange — landscapeLocked=\(isLandscapeLocked) landscapeAlwaysPlay=\(alwaysLandscape) physicalLandscape=\(physicalLandscape) isLandscape: \(prevIsLandscape) → \(newIsLandscape) playerIsActive: \(prevPlayerIsActive) → \(newIsLandscape)"
-            )
+            handleDeviceOrientationChanged()
         }
-        // Keep isLandscape in sync when the user toggles "Landscape Always Play" while
-        // the player is on screen.
-        .onChange(of: store.settings.landscapeAlwaysPlay) { oldValue, alwaysLandscape in
-            let rawOrientation = UIDevice.current.orientation
-            let physicallyLandscape = rawOrientation.isLandscape
-            let newIsLandscape = isLandscapeLocked || alwaysLandscape || physicallyLandscape
-            let prevIsLandscape = vm.isLandscape
-            let prevPlayerIsActive = OrientationManager.shared.playerIsActive
-            vm.isLandscape = newIsLandscape
-            OrientationManager.shared.playerIsActive = isLandscapeLocked || alwaysLandscape
-            swipeLog.notice(
-                "[orientation] landscapeAlwaysPlay: \(oldValue) → \(alwaysLandscape) landscapeLocked=\(isLandscapeLocked) rawOrientation=\(rawOrientation.rawValue) physicallyLandscape=\(physicallyLandscape) isLandscape: \(prevIsLandscape) → \(newIsLandscape) playerIsActive: \(prevPlayerIsActive) → \(isLandscapeLocked || alwaysLandscape)"
-            )
+        .onChange(of: store.settings.landscapeAlwaysPlay) { _, _ in
+            synchronizeLandscapePreference()
         }
-        // Apply orientation immediately when the lock button is tapped.
-        .onChange(of: isLandscapeLocked) { oldValue, isLocked in
-            let rawOrientation = UIDevice.current.orientation
-            let physicallyLandscape = rawOrientation.isLandscape
-            let alwaysLandscape = store.settings.landscapeAlwaysPlay
-            let newIsLandscape = isLocked || alwaysLandscape || physicallyLandscape
-            let prevIsLandscape = vm.isLandscape
-            let prevPlayerIsActive = OrientationManager.shared.playerIsActive
-            vm.isLandscape = newIsLandscape
-            OrientationManager.shared.playerIsActive = isLocked || alwaysLandscape
-            swipeLog.notice(
-                "[orientation] landscapeLocked: \(oldValue) → \(isLocked) alwaysLandscape=\(alwaysLandscape) physicallyLandscape=\(physicallyLandscape) isLandscape: \(prevIsLandscape) → \(newIsLandscape) playerIsActive: \(prevPlayerIsActive) → \(isLocked || alwaysLandscape)"
-            )
+        .onChange(of: isLandscapeLocked) { _, _ in
+            synchronizeLandscapePreference()
         }
         #endif
         .navigationDestination(item: $channelDestination) { dest in
