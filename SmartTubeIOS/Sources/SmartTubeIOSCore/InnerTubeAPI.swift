@@ -25,6 +25,15 @@ public actor InnerTubeAPI {
     let session: URLSession
     var visitorData: String?
     var authToken: String?
+    public private(set) var feedCountryCode = FeedCountry.defaultCode
+
+    public func setFeedCountry(_ code: String) {
+        let country = FeedCountry.normalized(code)
+        guard country != feedCountryCode else { return }
+        feedCountryCode = country
+        visitorData = nil
+        tubeLog.notice("Feed country changed to \(country, privacy: .public)")
+    }
     /// SAPISID cookie value from YouTube.com web session (set via OAuthLogin/MergeSession).
     /// Used by postWebCreator to compute SAPISIDHASH for WEB_CREATOR requests on www.youtube.com.
     var sapisid: String?
@@ -269,7 +278,10 @@ public actor InnerTubeAPI {
     /// Firebase issue 709b3e91 showed a 2m48s hang when this was left at the OS default.
     static let requestTimeoutInterval: TimeInterval = 30
 
-    public init(authToken: String? = nil, poTokenProvider: (any PoTokenProvider)? = nil) {
+    public init(
+        authToken: String? = nil, poTokenProvider: (any PoTokenProvider)? = nil,
+        feedCountryCode: String = FeedCountry.defaultCode
+    ) {
         let config = URLSessionConfiguration.default
         // NW-4-FIX: 30 s request timeout. Slow/throttled youtubei.googleapis.com requests
         // previously hung for over 2 minutes (Firebase issue 709b3e91) because the OS default
@@ -280,6 +292,7 @@ public actor InnerTubeAPI {
         config.waitsForConnectivity = true
         self.session = URLSession(configuration: config)
         self.authToken = authToken
+        self.feedCountryCode = FeedCountry.normalized(feedCountryCode)
         self.poTokenProvider = poTokenProvider
         // Start observing network path changes so visitorData is cleared on network transitions.
         // Callbacks arrive on pathMonitor's private queue; actor re-entry via Task is safe.

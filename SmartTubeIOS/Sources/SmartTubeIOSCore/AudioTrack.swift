@@ -6,13 +6,14 @@ import Foundation
 /// AVMediaSelectionOption itself is not Sendable, so we snapshot the data we need
 /// into this struct at load time; the actual option is kept in PlaybackViewModel.
 public struct AudioTrack: Identifiable, Hashable, Sendable {
-    /// BCP 47 language tag from the HLS rendition (e.g. "en", "es-419", "fr").
+    /// Stable rendition identifier, distinguishing tracks that share a language.
     public let id: String
     /// Localised display name (e.g. "English", "Spanish", "French").
     public let name: String
-    /// ISO 639-1 / BCP 47 language code — same value as `id` for #EXT-X-MEDIA tracks.
+    /// ISO 639-1 / BCP 47 language code from the rendition.
     public let languageCode: String
-    /// `true` when this is the HLS `DEFAULT=YES` rendition (the original audio).
+    /// `true` when metadata identifies the creator's original audio.
+    /// A server-selected HLS default can be a dub, so it is not sufficient on its own.
     public let isOriginal: Bool
     /// The `YT-EXT-AUDIO-CONTENT-ID` value used to filter HLS variants via the proxy.
     /// `nil` for tracks sourced from `#EXT-X-MEDIA` groups (AVMediaSelectionGroup path)

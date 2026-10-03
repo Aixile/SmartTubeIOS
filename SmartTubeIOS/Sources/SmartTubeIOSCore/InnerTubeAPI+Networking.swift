@@ -455,7 +455,7 @@ extension InnerTubeAPI {
         if let token = resolvedToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = try JSONSerialization.data(withJSONObject: feedRequestBody(body, endpoint: endpoint))
         let authLabel = resolvedToken != nil ? "yes" : "no"
         tubeLog.notice("POST /\(endpoint, privacy: .public) [WEB] auth=\(authLabel, privacy: .public)")
         let (data, response) = try await session.data(for: request)
@@ -830,7 +830,7 @@ extension InnerTubeAPI {
         request.setValue("https://www.youtube.com", forHTTPHeaderField: "Origin")
         request.setValue(InnerTubeClients.TV.nameID, forHTTPHeaderField: "X-YouTube-Client-Name")
         request.setValue(InnerTubeClients.TV.version, forHTTPHeaderField: "X-YouTube-Client-Version")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = try JSONSerialization.data(withJSONObject: feedRequestBody(body, endpoint: endpoint))
         tubeLog.notice("POST /\(endpoint, privacy: .public) [TV-category]")
         let (data, response) = try await session.data(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -892,7 +892,7 @@ extension InnerTubeAPI {
         if let token = resolvedToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = try JSONSerialization.data(withJSONObject: feedRequestBody(body, endpoint: endpoint))
         let authLabel = shouldAuthenticate ? "yes" : "no"
         tubeLog.notice("POST /\(endpoint, privacy: .public) [TV] auth=\(authLabel, privacy: .public)")
         let (data, response) = try await session.data(for: request)

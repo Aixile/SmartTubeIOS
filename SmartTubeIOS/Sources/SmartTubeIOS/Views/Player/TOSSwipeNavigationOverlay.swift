@@ -1,3 +1,4 @@
+import SmartTubeIOSCore
 import SwiftUI
 import os
 
@@ -9,9 +10,8 @@ private let swipeLog = Logger(subsystem: "com.void.smarttube.app", category: "TO
 
 // MARK: - TOSSwipeNavigationOverlay
 //
-// Horizontal swipe-left/right navigation for the TOS (WKWebView) player —
-// mirrors PlayerSwipeGestureOverlay's left/right behaviour for the AVPlayer
-// pipeline (PlayerView+AVLayer.swift: left → playNext(), right → playPrevious()).
+// Right-swipe return for the web player, matching the native player's Back action.
+// Video navigation is handled by explicit Previous/Next controls.
 //
 // Reuses PassthroughGestureView (SwipeGestureOverlay.swift) so the pan gesture
 // recognizer is re-homed onto the window and never blocks touches to the
@@ -22,8 +22,7 @@ private let swipeLog = Logger(subsystem: "com.void.smarttube.app", category: "TO
 
 #if os(iOS)
 struct TOSSwipeNavigationOverlay: UIViewRepresentable {
-    var onSwipeLeft: () -> Void
-    var onSwipeRight: () -> Void
+    var onReturn: () -> Void
     /// Called on any tap anywhere on the player. Receives window coordinates so
     /// the caller can distinguish tap zones (e.g. native controls area at bottom).
     var onTap: ((CGPoint) -> Void)? = nil
@@ -38,20 +37,10 @@ struct TOSSwipeNavigationOverlay: UIViewRepresentable {
     /// Fired once when a vertical drag ends (or is cancelled) — lets the caller reset its
     /// per-gesture start value and dismiss any on-screen brightness/volume indicator.
     var onVerticalDragEnded: (() -> Void)? = nil
-    /// #328: fired instead of `onSwipeRight` when the confirmed rightward swipe's touch
-    /// began within `edgeSwipeActivationWidth` of the left screen edge — mirrors iOS's
-    /// own edge-swipe-back affordance. Distinguishing by start position (not just
-    /// direction) is what lets this coexist with the existing swipe-right = playPrevious
-    /// gesture instead of replacing it everywhere.
-    var onEdgeSwipeExit: (() -> Void)? = nil
     var isEnabled: Bool = true
     /// Touches below this fraction of the screen height are ignored, leaving
     /// YouTube's bottom scrubber/control-bar free to handle horizontal drags.
     var verticalActivationFraction: CGFloat = 0.75
-    /// Width of the left-edge strip (in points) that activates `onEdgeSwipeExit`
-    /// instead of `onSwipeRight` for a rightward swipe.
-    var edgeSwipeActivationWidth: CGFloat = 24
-
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> PassthroughGestureView {
@@ -82,7 +71,6 @@ struct TOSSwipeNavigationOverlay: UIViewRepresentable {
         var parent: TOSSwipeNavigationOverlay
         weak var pan: UIPanGestureRecognizer?
         weak var tap: UITapGestureRecognizer?
-        private let minDistance: CGFloat = 40
         /// Fixed at gesture `.began` from the touch's initial x — which half of the
         /// screen a vertical drag started in doesn't change mid-gesture even if the
         /// finger crosses the midline.
@@ -92,7 +80,7 @@ struct TOSSwipeNavigationOverlay: UIViewRepresentable {
         /// vertical movement dominates, so a gesture can't flip categories mid-drag.
         private var isVerticalDrag = false
         /// Captured at `.began` — the touch's x-position in the gesture's view, used both
-        /// to decide vertical-drag left/right half and to detect an edge-swipe-right.
+        /// to decide whether a vertical drag started in the left or right edge zone.
         private var gestureStartX: CGFloat?
 
         init(_ parent: TOSSwipeNavigationOverlay) {
@@ -171,23 +159,8 @@ struct TOSSwipeNavigationOverlay: UIViewRepresentable {
                 return
             }
             guard gr.state == .ended else { return }
-            guard abs(t.x) > minDistance, abs(t.x) > abs(t.y) else {
-                swipeLog.notice(
-                    "[handlePan] ended — ignored (tx=\(Int(t.x)) ty=\(Int(t.y)) minDist=\(Int(self.minDistance)))")
-                return
-            }
-            let dir = t.x < 0 ? "LEFT" : "RIGHT"
-            swipeLog.notice("[handlePan] swipe \(dir) confirmed (tx=\(Int(t.x)))")
-            if t.x < 0 {
-                parent.onSwipeLeft()
-            } else if let startX = gestureStartX, startX <= parent.edgeSwipeActivationWidth,
-                let onEdgeSwipeExit = parent.onEdgeSwipeExit
-            {
-                swipeLog.notice("[handlePan] edge-swipe-right confirmed (startX=\(Int(startX))) — exit")
-                onEdgeSwipeExit()
-            } else {
-                parent.onSwipeRight()
-            }
+            guard PlayerReturnGesture.matches(horizontal: t.x, vertical: t.y) else { return }
+            parent.onReturn()
         }
     }
 }

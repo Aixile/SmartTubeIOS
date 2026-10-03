@@ -5,22 +5,22 @@ import SmartTubeIOSCore
 
 private let tosLog = Logger(subsystem: "com.void.smarttube.app", category: "TOSPlayer")
 
-// MARK: - Navigation (swipe left/right)
+// MARK: - Previous/next video navigation
 //
-// Backs TOSSwipeNavigationOverlay. `relatedVideos` is populated from the "ready"
+// Backs the Previous/Next buttons. `relatedVideos` is populated from the "ready"
 // bridge message (see TOSPlayerViewModel+WebBridge.swift) using the same
 // cache-first/stale-revalidate/full-miss pattern as fetchSponsorSegments()
 // (TOSPlayerViewModel+SponsorBlock.swift).
 //
 // Navigation priority:
 //   1. CurrentQueue playlist  — playlistId == CurrentQueueStore.playlistID
-//      Swipe-left  → next queue item (wraps to index 0 at end)
-//      Swipe-right → previous queue item (wraps to last at start)
+//      Next button → next queue item (wraps to index 0 at end)
+//      Previous button → previous queue item (wraps to last at start)
 //   2. Suggestions (relatedVideos) — all other cases
 //      seenVideoIds filters already-watched videos to avoid loop-back.
 
 extension TOSPlayerViewModel {
-    /// Whether a "next" suggestion video is available to swipe to.
+    /// Whether a "next" suggestion video is available to play.
     /// Always true for CurrentQueue (wraps around), true for suggestions when non-empty.
     var hasNext: Bool {
         if playlistId == CurrentQueueStore.playlistID { return true }
@@ -32,7 +32,7 @@ extension TOSPlayerViewModel {
         self.hasPrevious = hasPrevious
     }
 
-    /// Swipe-left handler.
+    /// Next-video action.
     /// - CurrentQueue: advance to the next queue item, wrapping to index 0 at end.
     /// - Suggestions: play the first related video.
     func playNext() {
@@ -84,7 +84,7 @@ extension TOSPlayerViewModel {
         playNext()
     }
 
-    /// Swipe-right handler.
+    /// Previous-video action.
     /// - CurrentQueue: go to the previous queue item, wrapping to last at start.
     /// - Suggestions: re-play the most recent history entry.
     func playPrevious() {
@@ -107,7 +107,7 @@ extension TOSPlayerViewModel {
         onPlayPrevious?()
     }
 
-    /// Cache-first fetch of related videos for swipe-left navigation.
+    /// Cache-first fetch of related videos for next-video navigation.
     /// Mirrors PlaybackViewModel+Loading.swift's related-video fetch with the
     /// same search fallback when fetchNextInfo returns 0 results.
     /// Results are filtered against `seenVideoIds` to prevent loop-back.

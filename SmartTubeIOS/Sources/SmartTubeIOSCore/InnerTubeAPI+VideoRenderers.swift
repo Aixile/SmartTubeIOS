@@ -88,7 +88,7 @@ extension InnerTubeAPI {
             } else if let arr = obj as? [Any] {
                 for item in arr { videos += walkShelfContents(item, depth: depth + 1) }
             }
-            return videos
+            return videos.filter { !$0.isMembersOnly }
         }
 
         func walk(_ obj: Any, depth: Int = 0) {
@@ -164,7 +164,9 @@ extension InnerTubeAPI {
 
     // MARK: - Flat video group parser
 
-    func parseVideoGroup(from json: [String: Any], title: String?) throws -> VideoGroup {
+    func parseVideoGroup(
+        from json: [String: Any], title: String?, includeMembersOnly: Bool = false
+    ) throws -> VideoGroup {
         var videos: [Video] = []
         var nextPageToken: String? = nil
         // Tracks the approximate watched/published date from section group headers.
@@ -401,6 +403,7 @@ extension InnerTubeAPI {
         }
 
         walk(json)
+        if !includeMembersOnly { videos.removeAll { $0.isMembersOnly } }
         let shortsCount = videos.filter { $0.isShort }.count
         let hitsDesc = rendererHits.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(
             separator: " ")
@@ -410,31 +413,6 @@ extension InnerTubeAPI {
             "parseVideoGroup '\(title ?? "nil", privacy: .public)' → \(videos.count, privacy: .public) videos (\(videos.count - shortsCount, privacy: .public) regular, \(shortsCount, privacy: .public) shorts), nextPage=\(nextPageToken != nil ? "yes" : "no", privacy: .public) | hits: \(hitsDesc.isEmpty ? "none" : hitsDesc, privacy: .public) | misses: \(missDesc.isEmpty ? "none" : missDesc, privacy: .public)"
         )
         return VideoGroup(title: title, videos: videos, nextPageToken: nextPageToken)
-    }
-
-    // MARK: - Shared members-only detection (#63, originally #227 for parseTileRenderer only)
-    //
-    // Two of the three signals task #227 implemented for parseTileRenderer are generic
-    // InnerTube renderer shapes (`thumbnailOverlayMembershipBadgeRenderer`,
-    // `metadataBadgeRenderer`) shared across renderer types, not TV-tile-specific — shared
-    // here so parsePlaylistVideoRenderer (used for the same Home/Subscriptions/History
-    // feeds, just for videos that arrive in the WEB-shaped renderer instead) can drop
-    // members-only videos too, instead of only tileRenderer-shaped ones. The third signal
-    // (secondary tileMetadata line text) is TV-tile-specific layout and stays inline in
-    // parseTileRenderer since other renderers don't share that structure.
-    private func isMembersOnlyVideo(overlays: [[String: Any]]?, badges: [[String: Any]]?) -> Bool {
-        if overlays?.contains(where: { $0["thumbnailOverlayMembershipBadgeRenderer"] != nil }) == true {
-            return true
-        }
-        if let badges {
-            return badges.contains { badge in
-                guard let meta = badge["metadataBadgeRenderer"] as? [String: Any] else { return false }
-                let iconType = (meta["icon"] as? [String: Any])?["iconType"] as? String ?? ""
-                let label = meta["label"] as? String ?? ""
-                return iconType.hasPrefix("MEMBERS") || label.lowercased().contains("member")
-            }
-        }
-        return false
     }
 
     // MARK: – TVHTML5 tileRenderer parser (Android TileItem methodology)
@@ -668,38 +646,6 @@ extension InnerTubeAPI {
             return nil
         }()
 
-        // Members-only: drop tiles for membership-gated content before they enter the feed.
-        // YouTube surfaces these in home/subs/history but they are unplayable without a channel
-        // membership. Three detection signals are checked in priority order:
-        //  1. thumbnailOverlayMembershipBadgeRenderer present in tileHeader.thumbnailOverlays
-        //  2. metadataBadgeRenderer with MEMBERS_ONLY icon or "member" label in tileMetadata.badges
-        //  3. "Members only" text in any secondary tileMetadata line item (locale-aware fallback)
-        // Signal 3 is a text fallback for locales that translate the badge label.
-        let isMembersOnly: Bool = {
-            if isMembersOnlyVideo(overlays: overlays, badges: tileMetadata?["badges"] as? [[String: Any]]) {
-                return true
-            }
-            // Signal 3: secondary metadata line text (badge text shown next to channel name/date)
-            if let lines = tileMetadata?["lines"] as? [[String: Any]], lines.count > 1 {
-                for line in lines.dropFirst() {
-                    guard let items = (line["lineRenderer"] as? [String: Any])?["items"] as? [[String: Any]] else {
-                        continue
-                    }
-                    for item in items {
-                        guard let text = (item["lineItemRenderer"] as? [String: Any])?["text"] as? [String: Any],
-                            let str = extractText(text)
-                        else { continue }
-                        if str.lowercased().contains("members only") { return true }
-                    }
-                }
-            }
-            return false
-        }()
-        if isMembersOnly {
-            tubeLog.notice("parseTileRenderer: dropping members-only tile id=\(videoId, privacy: .public)")
-            return nil
-        }
-
         return Video(
             id: videoId,
             title: title,
@@ -731,7 +677,7 @@ extension InnerTubeAPI {
             isShort: isShort,
             watchProgress: watchProgress,
             setVideoId: setVideoId,
-            badges: []
+            badges: VideoMembershipParser.badges(in: tile)
         )
     }
 
@@ -823,20 +769,12 @@ extension InnerTubeAPI {
 
         // thumbnail: contentImage.thumbnailViewModel.image.thumbnails
         let thumbVM = (lockup["contentImage"] as? [String: Any])?["thumbnailViewModel"] as? [String: Any]
+        let thumbnailMetadata = thumbnailBadgeMetadata(thumbVM)
         let thumbnails = (thumbVM?["image"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
         let thumbURL = thumbnails?.last.flatMap { $0["url"] as? String }.flatMap { URL(string: $0) }
 
-        // isShort: only one signal currently (reelWatchEndpoint) — unlike parseVideoRenderer's
-        // four signals. GitHub #41 ("Hide Shorts" still leaking through in Home/Subscriptions,
-        // confirmed on 4.7) is suspected to be Shorts arriving here via a regular watchEndpoint
-        // instead of reelWatchEndpoint, the same gap task #201/BUG-014 fixed for
-        // parseVideoRenderer — but parseVideoRenderer's extra signals (overlay style,
-        // ustreamerConfig, vertical thumbnail) all need a duration guard to avoid
-        // misclassifying landscape videos with portrait thumbnails (task #201), and
-        // lockupViewModel never exposes a parsed duration. Rather than ship an unguarded
-        // (and therefore riskier) heuristic without a live sample to verify against, log
-        // the cases that fall through so the next real occurrence gives a concrete renderer
-        // shape to fix precisely.
+        // A reel endpoint explicitly identifies a Short. A portrait thumbnail alone
+        // is not enough: regular uploads can also use portrait artwork.
         let isShort = reelEndpoint != nil
         if isShort {
             tubeLog.debug("lockupViewModel isShort=true id=\(videoId, privacy: .public) signal=reelWatchEndpoint")
@@ -872,7 +810,7 @@ extension InnerTubeAPI {
 
         return Video(
             id: videoId, title: title, channelTitle: channelTitle, channelId: channelId,
-            thumbnailURL: thumbURL, duration: nil,
+            thumbnailURL: thumbURL, duration: thumbnailMetadata.duration,
             viewCount: {
                 // BUG-011 fix: extract viewCount from contentMetadataViewModel metadataRows.
                 // Row index 1 (second row) often contains "N views" or compact count.
@@ -888,7 +826,8 @@ extension InnerTubeAPI {
                 return nil
             }(),
             publishedAt: publishedAt,
-            isLive: false, isShort: isShort, badges: []
+            isLive: thumbnailMetadata.isLive, isUpcoming: lockup["upcomingEventData"] != nil,
+            isShort: isShort, badges: VideoMembershipParser.badges(in: lockup)
         )
     }
 
@@ -939,7 +878,7 @@ extension InnerTubeAPI {
                 let vcText = (r["viewCountText"] as? [String: Any]).flatMap { extractText($0) }
                 return vcText.flatMap { extractNumber($0) }
             }(),
-            isLive: false, isShort: true, hasPortraitThumbnail: true, badges: []
+            isLive: false, isShort: true, hasPortraitThumbnail: true, badges: VideoMembershipParser.badges(in: r)
         )
     }
 
@@ -1093,9 +1032,10 @@ extension InnerTubeAPI {
             publishedAt: publishedAt,
             publishedTimeText: publishedTimeText,
             isLive: isLive,
+            isUpcoming: r["upcomingEventData"] != nil,
             isShort: isShort,
             watchProgress: watchProgress,
-            badges: badges,
+            badges: VideoMembershipParser.badges(in: r, existing: badges),
             notInterestedToken: feedbackTokens["NOT_INTERESTED"],
             dontLikeToken: feedbackTokens["DISLIKE"],
             hideChannelToken: feedbackTokens["BLOCK_CHANNEL"]
@@ -1107,19 +1047,7 @@ extension InnerTubeAPI {
     // ownerText/viewCountText which parseVideoRenderer expects.
     private func parsePlaylistVideoRenderer(_ r: [String: Any]) -> Video? {
         guard let videoId = r["videoId"] as? String else { return nil }
-        // #63: drop members-only videos here too — this renderer serves the same
-        // Home/Subscriptions/History feeds parseTileRenderer does (see this function's
-        // own BUG-012 doc comment above), just for videos that arrive in the WEB-shaped
-        // renderer instead of the TV tile shape. Without this, a members-only video could
-        // still leak through whichever of the two shapes YouTube happened to use for it.
-        if isMembersOnlyVideo(
-            overlays: r["thumbnailOverlays"] as? [[String: Any]], badges: r["badges"] as? [[String: Any]]
-        ) {
-            tubeLog.notice("parsePlaylistVideoRenderer: dropping members-only video id=\(videoId, privacy: .public)")
-            return nil
-        }
-        // The playlist-entry token needed to remove this exact item via ACTION_REMOVE_VIDEO
-        // (see InnerTubeAPI+Social.swift's removeFromWatchLater — #122).
+        // Token used to remove this exact playlist entry via ACTION_REMOVE_VIDEO.
         let setVideoId = r["setVideoId"] as? String
         let title = (r["title"] as? [String: Any]).flatMap { extractText($0) } ?? ""
 
@@ -1214,7 +1142,7 @@ extension InnerTubeAPI {
             isShort: isShort,
             watchProgress: watchProgress,
             setVideoId: setVideoId,
-            badges: []
+            badges: VideoMembershipParser.badges(in: r)
         )
     }
 
@@ -1292,7 +1220,7 @@ extension InnerTubeAPI {
             isLive: false,
             isShort: true,
             watchProgress: nil,
-            badges: []
+            badges: VideoMembershipParser.badges(in: r)
         )
     }
 }

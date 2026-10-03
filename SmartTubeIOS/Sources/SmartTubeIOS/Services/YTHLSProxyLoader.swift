@@ -48,7 +48,7 @@ final class YTHLSProxyLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecke
     let webViewCookies: [HTTPCookie]
     /// When non-nil, the proxy filters the master manifest to only serve #EXT-X-STREAM-INF
     /// variants whose YT-EXT-AUDIO-CONTENT-ID matches this value (dubbed language selection).
-    /// When nil, only variants WITHOUT YT-EXT-AUDIO-CONTENT-ID are served (original audio).
+    /// When nil, uses original-audio metadata, or variants without a content ID.
     let selectedLanguageContentID: String?
     /// When non-nil, the proxy:
     ///  - Rewrites #EXT-X-STREAM-INF variant URIs in the master manifest to the proxy scheme
@@ -387,7 +387,9 @@ final class YTHLSProxyLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecke
                 $0.trimmingCharacters(in: .whitespaces).hasPrefix("#EXT-X-STREAM-INF:")
             }
             if hasVariants {
-                let selectedLang = selectedLanguageContentID
+                let selectedLang =
+                    selectedLanguageContentID
+                    ?? parseHLSAudioLanguages(from: text).first(where: \.isOriginal)?.contentID
                 var filteredLines: [String] = []
                 var pendingKeep: Bool? = nil
                 var keptVariantCount = 0
@@ -395,16 +397,7 @@ final class YTHLSProxyLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecke
                 for line in currentLines {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
                     if trimmed.hasPrefix("#EXT-X-STREAM-INF:") {
-                        let hasContentID = trimmed.contains("YT-EXT-AUDIO-CONTENT-ID=")
-                        if let lang = selectedLang {
-                            // Keep only the variant matching the selected language
-                            pendingKeep =
-                                trimmed.contains("YT-EXT-AUDIO-CONTENT-ID=\"\(lang)\"")
-                                || trimmed.contains("YT-EXT-AUDIO-CONTENT-ID=\(lang)")
-                        } else {
-                            // No language selected → original (no content ID)
-                            pendingKeep = !hasContentID
-                        }
+                        pendingKeep = hlsVariantMatchesAudioContentID(trimmed, contentID: selectedLang)
                         if pendingKeep == true { filteredLines.append(line) }
                     } else if let keep = pendingKeep, !trimmed.isEmpty, !trimmed.hasPrefix("#") {
                         // URL line immediately following a #EXT-X-STREAM-INF

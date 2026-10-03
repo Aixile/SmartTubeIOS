@@ -49,7 +49,9 @@ struct AppEntry: App {
             }
             return BotGuardClient()
         }()
-        let api = InnerTubeAPI(authToken: nil, poTokenProvider: poTokenProvider)
+        let api = InnerTubeAPI(
+            authToken: nil, poTokenProvider: poTokenProvider,
+            feedCountryCode: settingsStore.settings.feedCountryCode)
         _api = State(initialValue: api)
         _authService = State(initialValue: AuthService())
         _browseViewModel = State(initialValue: BrowseViewModel(api: api))

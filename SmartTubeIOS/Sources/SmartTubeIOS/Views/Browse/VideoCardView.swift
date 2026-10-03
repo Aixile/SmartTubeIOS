@@ -439,6 +439,7 @@ public struct VideoCardView: View {
                 }
 
             VStack(alignment: .leading, spacing: 2) {
+                VideoMembershipBadge(video: video)
                 Text(displayTitle)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2, reservesSpace: true)
@@ -496,6 +497,7 @@ public struct VideoCardView: View {
                     if WatchLaterMembershipStore.shared.contains(video.id) { watchLaterSavedBadge }
                 }
             VStack(alignment: .leading, spacing: 3) {
+                VideoMembershipBadge(video: video)
                 Text(displayTitle)
                     .font(.subheadline)
                     .lineLimit(2)

@@ -82,27 +82,21 @@ public func parseHLSMasterManifest(_ manifestText: String, baseURL: URL) -> [Int
 
 /// Parses a map of stream height → variant URL from the HLS master manifest for a
 /// specific dubbed-audio content ID. Used by switchHLSLanguage to update hlsVariantURLs.
-/// If `contentID` is nil, returns original-audio variant URLs (no YT-EXT-AUDIO-CONTENT-ID).
+/// If `contentID` is nil, uses the original track's metadata, falling back to variants
+/// without YT-EXT-AUDIO-CONTENT-ID when the original has no content ID.
 public func parseHLSVariantURLsForLanguage(
     _ contentID: String?,
     from manifest: String,
     baseURL: URL
 ) -> [Int: URL] {
     let lines = manifest.components(separatedBy: "\n")
+    let selectedContentID = contentID ?? parseHLSAudioLanguages(from: manifest).first(where: \.isOriginal)?.contentID
     var result: [Int: URL] = [:]
     var i = 0
     while i < lines.count {
         let line = lines[i].trimmingCharacters(in: .whitespaces)
         if line.hasPrefix("#EXT-X-STREAM-INF:") {
-            let hasContentID = line.contains("YT-EXT-AUDIO-CONTENT-ID=")
-            let matches: Bool
-            if let lang = contentID {
-                matches =
-                    line.contains("YT-EXT-AUDIO-CONTENT-ID=\"\(lang)\"")
-                    || line.contains("YT-EXT-AUDIO-CONTENT-ID=\(lang)")
-            } else {
-                matches = !hasContentID
-            }
+            let matches = hlsVariantMatchesAudioContentID(line, contentID: selectedContentID)
             guard matches else {
                 i += 2
                 continue
@@ -243,6 +237,13 @@ public func filterHLSMasterManifest(
     requiredVideoCodec: String
 ) -> String {
     let lines = manifest.components(separatedBy: .newlines)
+    let originalAudioGroups = Set(
+        lines.compactMap { line -> String? in
+            guard line.contains("#EXT-X-MEDIA:"), line.contains("TYPE=AUDIO"),
+                hlsMediaLineIsOriginalAudio(line)
+            else { return nil }
+            return extractQuotedHLSAttribute("GROUP-ID", from: line)
+        })
     var output: [String] = []
     var shouldDropNextURI = false
 
@@ -280,14 +281,14 @@ public func filterHLSMasterManifest(
 
         if trimmed.hasPrefix("#EXT-X-MEDIA:"),
             trimmed.localizedCaseInsensitiveContains("TYPE=AUDIO"),
-            hlsMediaLineIsOriginalAudio(trimmed)
+            let group = extractQuotedHLSAttribute("GROUP-ID", from: trimmed),
+            originalAudioGroups.contains(group)
         {
-            if trimmed.contains("DEFAULT=NO") {
-                output.append(line.replacingOccurrences(of: "DEFAULT=NO", with: "DEFAULT=YES"))
-            } else if !trimmed.contains("DEFAULT=") {
-                output.append(line + ",DEFAULT=YES")
+            let defaultValue = hlsMediaLineIsOriginalAudio(trimmed) ? "YES" : "NO"
+            if let range = line.range(of: #"DEFAULT=(YES|NO)"#, options: .regularExpression) {
+                output.append(line.replacingCharacters(in: range, with: "DEFAULT=\(defaultValue)"))
             } else {
-                output.append(line)
+                output.append(line + ",DEFAULT=\(defaultValue)")
             }
             continue
         }
@@ -299,8 +300,9 @@ public func filterHLSMasterManifest(
 }
 
 private func hlsMediaLineIsOriginalAudio(_ line: String) -> Bool {
-    if line.localizedCaseInsensitiveContains("original")
-        && !line.localizedCaseInsensitiveContains("dubbed")
+    if let name = extractQuotedHLSAttribute("NAME", from: line),
+        name.localizedCaseInsensitiveContains("original")
+            && !name.localizedCaseInsensitiveContains("dubbed")
     {
         return true
     }
@@ -311,4 +313,16 @@ private func hlsMediaLineIsOriginalAudio(_ line: String) -> Bool {
     guard let data = Data(base64Encoded: padded) else { return false }
     return data.range(of: Data("original".utf8)) != nil
         && data.range(of: Data("dubbed".utf8)) == nil
+}
+
+/// Compares complete content IDs, so selecting `en.1` cannot accidentally match `en.10`.
+/// A nil ID selects variants without per-language metadata.
+public func hlsVariantMatchesAudioContentID(_ line: String, contentID: String?) -> Bool {
+    guard let contentID else { return !line.contains("YT-EXT-AUDIO-CONTENT-ID=") }
+    if let quoted = extractQuotedHLSAttribute("YT-EXT-AUDIO-CONTENT-ID", from: line) {
+        return quoted == contentID
+    }
+    guard let range = line.range(of: "YT-EXT-AUDIO-CONTENT-ID=") else { return false }
+    let value = line[range.upperBound...].split(separator: ",", maxSplits: 1).first
+    return value?.trimmingCharacters(in: .whitespaces) == contentID
 }

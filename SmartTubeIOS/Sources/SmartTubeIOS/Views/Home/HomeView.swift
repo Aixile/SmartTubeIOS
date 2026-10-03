@@ -13,6 +13,12 @@ import SwiftUI
 public struct HomeView: View {
     @State private var homeVM: HomeViewModel
     @State private var sectionVM: BrowseViewModel
+    @State private var topicsVM: RecommendationTopicsViewModel
+    @State private var activeFeedCountry: String?
+    private struct FeedContext: Hashable {
+        let token: String?
+        let country: String
+    }
     @Environment(AuthService.self) private var auth
     @Environment(SettingsStore.self) private var store
     @Environment(\.innerTubeAPI) private var api
@@ -71,6 +77,7 @@ public struct HomeView: View {
     public init(api: InnerTubeAPI) {
         _homeVM = State(initialValue: HomeViewModel(api: api))
         _sectionVM = State(initialValue: BrowseViewModel(api: api))
+        _topicsVM = State(initialValue: RecommendationTopicsViewModel(api: api))
     }
 
     // MARK: - Body
@@ -78,6 +85,9 @@ public struct HomeView: View {
     public var body: some View {
         VStack(spacing: 0) {
             chipBar
+            if selectedSection.type == .home || selectedSection.type == .recommended {
+                RecommendationTopicBar(model: topicsVM)
+            }
             #if !os(tvOS)
             Divider()
             #endif
@@ -126,9 +136,25 @@ public struct HomeView: View {
                 selectedSection = first
             }
         }
-        .task(id: auth.accessToken) {
+        .task(id: FeedContext(token: auth.accessToken, country: store.settings.feedCountryCode)) {
+            let country = store.settings.feedCountryCode
+            let countryChanged = activeFeedCountry != nil && activeFeedCountry != country
+            topicsVM.reset()
+            await api.setFeedCountry(country)
+            guard !Task.isCancelled else { return }
+            if countryChanged {
+                // Discard cached pages and isolate any late response from the old country.
+                homeVM.cancel()
+                homeVM = HomeViewModel(api: api)
+            }
             await homeVM.updateAuthToken(auth.accessToken)
             await sectionVM.updateAuthToken(auth.accessToken)
+            guard !Task.isCancelled else { return }
+            if countryChanged {
+                sectionVM.reload(section: selectedSection)
+            }
+            activeFeedCountry = country
+            await topicsVM.loadTopics()
         }
         .task(id: selectedSection) {
             // Reset auto-retry flags when switching sections to prevent stale
@@ -250,7 +276,11 @@ public struct HomeView: View {
 
     @ViewBuilder
     private var contentArea: some View {
-        if selectedSection.type == .home {
+        if topicsVM.selectedTopic != nil, selectedSection.type == .home || selectedSection.type == .recommended {
+            TopicRecommendationsView(model: topicsVM, settings: store.settings) { video, videos in
+                selectVideo(video, from: videos)
+            }
+        } else if selectedSection.type == .home {
             if auth.isSignedIn {
                 homeShelves
             } else {
@@ -304,38 +334,35 @@ public struct HomeView: View {
                 let hideShorts = store.settings.hideShorts
                 let regularVideos = homeVM.homeRegularVideos
                 let shortsVideos = hideShorts ? [] : homeVM.homeShortsVideos
-                // ShortsRowSection is placed OUTSIDE the ScrollView so it stays
-                // pinned at the top while the video grid scrolls beneath it.
-                VStack(spacing: 0) {
-                    if !shortsVideos.isEmpty {
-                        ShortsRowSection(
-                            videos: shortsVideos,
-                            onSelect: { selectVideo($0, from: shortsVideos) },
-                            accessibilityID: "home.shortsRow",
-                            loadMore: { homeVM.loadNextShortsPage() }
-                        )
-                        #if os(tvOS)
-                        .focusSection()
-                        #endif
-                    }
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            VideoGridSection(
-                                videos: regularVideos,
-                                onSelect: { selectVideo($0, from: regularVideos) },
-                                loadMore: { homeVM.loadMoreMerged() }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !shortsVideos.isEmpty {
+                            ShortsRowSection(
+                                videos: shortsVideos,
+                                onSelect: { selectVideo($0, from: shortsVideos) },
+                                accessibilityID: "home.shortsRow",
+                                loadMore: { homeVM.loadNextShortsPage() }
                             )
-                            let isLoadingMore = homeVM.sections.contains { $0.isLoadingMore }
-                            if isLoadingMore {
-                                ProgressView().frame(maxWidth: .infinity).padding()
-                            }
+                            #if os(tvOS)
+                            .focusSection()
+                            #endif
+                        }
+                        VideoGridSection(
+                            videos: regularVideos,
+                            onSelect: { selectVideo($0, from: regularVideos) },
+                            loadMore: { homeVM.loadMoreMerged() }
+                        )
+                        let isLoadingMore = homeVM.sections.contains { $0.isLoadingMore }
+                        if isLoadingMore {
+                            ProgressView().frame(maxWidth: .infinity).padding()
                         }
                     }
-                    .refreshable { homeVM.load() }
-                    #if os(tvOS)
-                    .focusSection()
-                    #endif
                 }
+                .refreshable { homeVM.load() }
+                .accessibilityIdentifier(AccessibilityID.Home.scrollFeed)
+                #if os(tvOS)
+                .focusSection()
+                #endif
             }
         }
     }
@@ -369,18 +396,18 @@ public struct HomeView: View {
         let isSubscriptions = selectedSection.type == .subscriptions
         let channelFilter = isSubscriptions ? subscriptionsChannelFilter : nil
 
-        // Pinned shorts row: shown above the scrollable content for all chips
+        // Shorts shelf: scrolls with the feed for all chips
         // except the Shorts chip itself (which shows a full vertical list instead).
         // For Recommended, use the separately-fetched recommendedShortsVideos so
         // there is no double-counting with the grid below.
         // For all other chips, extract any shorts that appear in the video groups.
-        let pinnedShorts: [Video]
+        let shelfShorts: [Video]
         if isShorts || applyHideShorts {
-            pinnedShorts = []
+            shelfShorts = []
         } else if selectedSection.type == .recommended {
-            pinnedShorts = sectionVM.recommendedShortsVideos.filter { !hideLiveShorts || !($0.isLive && $0.isShort) }
+            shelfShorts = sectionVM.recommendedShortsVideos.filter { !hideLiveShorts || !($0.isLive && $0.isShort) }
         } else {
-            pinnedShorts = sectionVM.videoGroups.flatMap(\.videos).filter(\.isShort).filter {
+            shelfShorts = sectionVM.videoGroups.flatMap(\.videos).filter(\.isShort).filter {
                 !hideLiveShorts || !($0.isLive && $0.isShort)
             }
         }
@@ -397,7 +424,7 @@ public struct HomeView: View {
             return copy
         }
         // For non-Shorts chips, exclude shorts from the grid — they appear in the
-        // pinned row above. For the Shorts chip itself, keep all videos.
+        // shelf above. For the Shorts chip itself, keep all videos.
         // VStack (not LazyVStack) is required here. LazyVGrid inside LazyVStack
         // collapses to zero height — grid items become invisible and non-tappable
         // because LazyVStack never provides a measured height to LazyVGrid.
@@ -477,35 +504,6 @@ public struct HomeView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 6)
             }
-            // Pinned ShortsRowSection — outside the ScrollView so it stays fixed
-            // at the top while the video content below scrolls.
-            if !pinnedShorts.isEmpty {
-                ShortsRowSection(
-                    videos: pinnedShorts,
-                    onSelect: { selectVideo($0, from: pinnedShorts) },
-                    accessibilityID: selectedSection.type == .recommended
-                        ? "recommended.shortsRow"
-                        : "browse.shortsRow",
-                    loadMore: {
-                        // Reaching the end of the shorts row means the user wants more
-                        // content of ALL types — set both flags so onChange keeps
-                        // retrying until both shorts AND non-shorts have grown (or pages
-                        // are exhausted). Without setting needsMoreNonShorts here, pages
-                        // that arrive with only non-shorts would not re-trigger the loop.
-                        let allVideos = sectionVM.videoGroups.flatMap(\.videos)
-                        shortsCountAtTrigger = allVideos.filter(\.isShort).count
-                        nonShortsCountAtTrigger = allVideos.filter { !$0.isShort }.count
-                        needsMoreShorts = true
-                        needsMoreNonShorts = true
-                        if let last = paginationTrigger {
-                            sectionVM.loadMoreIfNeeded(lastVideo: last)
-                        }
-                    }
-                )
-                #if os(tvOS)
-                .focusSection()
-                #endif
-            }
             if isShorts {
                 // Shorts chip: vertical portrait card list driven by ShortsRowSection's
                 // internal ScrollView. frame(maxHeight: .infinity) ensures the internal
@@ -534,6 +532,34 @@ public struct HomeView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        if !shelfShorts.isEmpty {
+                            ShortsRowSection(
+                                videos: shelfShorts,
+                                onSelect: { selectVideo($0, from: shelfShorts) },
+                                accessibilityID: selectedSection.type == .recommended
+                                    ? "recommended.shortsRow"
+                                    : "browse.shortsRow",
+                                loadMore: {
+                                    // Reaching the end of the shorts row means the user wants more
+                                    // content of ALL types — set both flags so onChange keeps
+                                    // retrying until both shorts AND non-shorts have grown (or pages
+                                    // are exhausted). Without setting needsMoreNonShorts here, pages
+                                    // that arrive with only non-shorts would not re-trigger the loop.
+                                    let allVideos = sectionVM.videoGroups.flatMap(\.videos)
+                                    shortsCountAtTrigger = allVideos.filter(\.isShort).count
+                                    nonShortsCountAtTrigger = allVideos.filter { !$0.isShort }.count
+                                    needsMoreShorts = true
+                                    needsMoreNonShorts = true
+                                    if let last = paginationTrigger {
+                                        sectionVM.loadMoreIfNeeded(lastVideo: last)
+                                    }
+                                }
+                            )
+                            #if os(tvOS)
+                            .focusSection()
+                            #endif
+                        }
+
                         if selectedSection.type == .playlists, queueVideosCount > 0 {
                             currentQueueRow
                         }
@@ -558,7 +584,7 @@ public struct HomeView: View {
                                     // shorts have grown (or pages are exhausted). Without
                                     // setting needsMoreShorts here, pages that contain
                                     // only shorts (no new grid videos) would stall the
-                                    // retry — and the pinned shorts row would never grow
+                                    // retry — and the shorts shelf would never grow
                                     // unless the user also manually scrolls it to the end.
                                     let allVideos = sectionVM.videoGroups.flatMap(\.videos)
                                     nonShortsCountAtTrigger = allVideos.filter { !$0.isShort }.count
@@ -622,7 +648,7 @@ public struct HomeView: View {
                     let hasMorePages = sectionVM.videoGroups.last?.nextPageToken != nil
                     let currentShortsCount = allVideos.filter(\.isShort).count
                     if currentShortsCount > shortsCountAtTrigger {
-                        needsMoreShorts = false  // pinned row got new shorts — satisfied
+                        needsMoreShorts = false  // shelf got new shorts — satisfied
                     } else if !hasMorePages {
                         needsMoreShorts = false  // no more pages — stop
                     } else {

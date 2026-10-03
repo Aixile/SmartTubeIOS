@@ -6,21 +6,17 @@ import SwiftUI
 // Displays channel info, subscriber count and a grid of recent uploads.
 // Mirrors the Android `ChannelFragment`.
 
-// MARK: - ChannelFilter
-
-private enum ChannelFilter: String, CaseIterable {
-    case all = "All"
-    case shorts = "Shorts"
-}
-
 public struct ChannelView: View {
     public let channelId: String
     @State private var vm = ChannelViewModel()
     @State private var selectedVideo: Video?
     @State private var shortsPresentation: ShortsPresentation?
     @State private var channelDestination: ChannelDestination?
-    @State private var filter: ChannelFilter = .all
+    @State private var filter = ChannelVideoFilter()
+    @State private var showsFilters = false
+    @State private var loadedChannelId: String?
     @State private var isFollowedLocally = false
+    private let history = LocalWatchHistoryStore.shared
     @Environment(SettingsStore.self) private var store
     @Environment(AuthService.self) private var auth
     @Environment(\.innerTubeAPI) private var api
@@ -38,13 +34,20 @@ public struct ChannelView: View {
             if vm.isLoading && vm.channel == nil {
                 ProgressView("Loading channel…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("channel.view")
+                    .accessibilityIdentifier(AccessibilityID.Channel.view)
             } else {
                 content
             }
         }
         .navigationTitle(vm.channel?.title ?? "Channel")
-        .onAppear { vm.load(channelId: channelId) }
+        .task(id: channelId) {
+            guard loadedChannelId != channelId else { return }
+            vm = ChannelViewModel(api: api)
+            loadedChannelId = channelId
+            vm.load(channelId: channelId)
+            await vm.waitForCurrentRequest()
+        }
+        .sheet(isPresented: $showsFilters) { ChannelFiltersSheet(filter: $filter) }
         .task(id: vm.channel?.id) {
             guard let id = vm.channel?.id else { return }
             isFollowedLocally = await LocalSubscriptionStore.shared.isFollowing(id)
@@ -71,8 +74,13 @@ public struct ChannelView: View {
             ShortsPlayerView(videos: target.videos, startIndex: target.startIndex, api: api)
         }
         #endif
-        .alert("Error", isPresented: .constant(vm.error != nil), presenting: vm.error) { _ in
-            Button("Retry") { vm.load(channelId: channelId) }
+        .alert(
+            "Error", isPresented: Binding(get: { vm.error != nil }, set: { if !$0 { vm.error = nil } }),
+            presenting: vm.error
+        ) { _ in
+            Button("Retry") {
+                if vm.hasMore { vm.loadMore() } else { vm.load(channelId: channelId) }
+            }
             Button("Dismiss", role: .cancel) {}
         } message: { err in
             Text(err.localizedDescription)
@@ -104,7 +112,7 @@ public struct ChannelView: View {
                                 ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.minus"
                         )
                     }
-                    .accessibilityIdentifier("channel.sponsorBlockButton")
+                    .accessibilityIdentifier(AccessibilityID.Channel.sponsorBlockButton)
                 }
                 #endif
             }
@@ -113,46 +121,101 @@ public struct ChannelView: View {
 
     private var content: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                // Channel header
-                if let channel = vm.channel {
-                    channelHeader(channel)
-                }
-
-                // All / Shorts filter
-                Picker("Filter", selection: $filter) {
-                    ForEach(ChannelFilter.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if let channel = vm.channel { channelHeader(channel) }
+                Section {
+                    let filtered = filteredVideos
+                    if filtered.isEmpty && !vm.isLoading {
+                        ContentUnavailableView {
+                            Label("No matching videos", systemImage: AppSymbol.search)
+                        } description: {
+                            Text(
+                                vm.hasMore
+                                    ? "Try different filters or load more videos below."
+                                    : "Try changing or clearing your filters.")
+                        } actions: {
+                            if filter.isActive { Button("Clear filters") { filter = ChannelVideoFilter() } }
+                        }
+                    } else if filter.kind == .shorts {
+                        shortsGrid(filtered)
+                    } else {
+                        videosGrid(filtered)
                     }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 10)
-                .accessibilityIdentifier("channel.filterPicker")
-
-                let filtered = filteredVideos
-                if filter == .shorts {
-                    shortsGrid(filtered)
-                } else {
-                    videosGrid(filtered)
-                }
-
-                if vm.isLoading {
-                    ProgressView().frame(maxWidth: .infinity).padding()
+                    paginationFooter
+                } header: {
+                    filterBar
                 }
             }
         }
-        .refreshable { vm.load(channelId: channelId) }
-        .accessibilityIdentifier("channel.view")
+        .refreshable {
+            vm.load(channelId: channelId)
+            await vm.waitForCurrentRequest()
+        }
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
+        .accessibilityIdentifier(AccessibilityID.Channel.view)
     }
 
-    // MARK: - Filtered data
+    private var filterBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: AppSymbol.search).foregroundStyle(.secondary)
+                TextField("Search loaded videos", text: $filter.query)
+                    .accessibilityIdentifier(AccessibilityID.Channel.search)
+                Button {
+                    showsFilters = true
+                } label: {
+                    Label(
+                        filter.activeCount == 0 ? "Filters" : "Filters (\(filter.activeCount))",
+                        systemImage: AppSymbol.filters)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier(AccessibilityID.Channel.filtersButton)
+            }
+            Picker("Membership", selection: $filter.access) {
+                ForEach(ChannelVideoFilter.Access.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier(AccessibilityID.Channel.access)
+            HStack {
+                Text("\(filteredVideos.count) matching · \(vm.videos.count) loaded")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if filter.isActive {
+                    Button("Clear") { filter = ChannelVideoFilter() }
+                        .font(.caption)
+                        .accessibilityIdentifier(AccessibilityID.Channel.reset)
+                }
+            }
+        }
+        .padding()
+        .background(.background)
+    }
+
+    private var paginationFooter: some View {
+        VStack(spacing: 8) {
+            if vm.isLoading {
+                ProgressView("Loading videos…")
+            } else if vm.hasMore {
+                Button("Load more videos") { vm.loadMore() }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier(AccessibilityID.Channel.loadMore)
+                    .onAppear {
+                        if !filter.isActive && vm.error == nil { vm.loadMore() }
+                    }
+                Text("Filters and sorting apply to loaded videos.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+    }
 
     private var filteredVideos: [Video] {
-        switch filter {
-        case .all: return vm.videos.filter { !store.settings.hideShorts || !$0.isShort }
-        case .shorts: return vm.videos.filter { $0.isShort }
-        }
+        filter.apply(
+            to: vm.videos, hideShorts: store.settings.hideShorts, watchedThreshold: store.settings.hideWatchedThreshold,
+            watchedVideoIDs: Set(history.entries.map { $0.video.id }))
     }
 
     // MARK: - Grid layouts
@@ -166,16 +229,13 @@ public struct ChannelView: View {
                         VideoCardView(video: video, compact: true)
                             .padding(.horizontal)
                             .padding(.vertical, 6)
-                            .accessibilityIdentifier("video.card.\(video.id)")
+                            .accessibilityIdentifier(AccessibilityID.Channel.videoCard(video.id))
                             .onTapGesture {
                                 #if os(iOS)
                                 playerRouter.open(video: video, api: api)
                                 #else
                                 selectedVideo = video
                                 #endif
-                            }
-                            .onAppear {
-                                if video.id == vm.videos.last?.id { vm.loadMore() }
                             }
                         Divider().padding(.horizontal)
                     }
@@ -190,7 +250,7 @@ public struct ChannelView: View {
                             ForEach(rowVideos) { video in
                                 VideoCardView(video: video, compact: false, onSelect: { selectedVideo = video })
                                     .frame(maxWidth: .infinity)
-                                    .accessibilityIdentifier("video.card.\(video.id)")
+                                    .accessibilityIdentifier(AccessibilityID.Channel.videoCard(video.id))
                             }
                             let remainder = columnCount - rowVideos.count
                             if remainder > 0 {
@@ -198,9 +258,6 @@ public struct ChannelView: View {
                                     Color.clear.frame(maxWidth: .infinity)
                                 }
                             }
-                        }
-                        .onAppear {
-                            if rowVideos.last?.id == vm.videos.last?.id { vm.loadMore() }
                         }
                     }
                 }
@@ -212,16 +269,13 @@ public struct ChannelView: View {
                 ) {
                     ForEach(videos) { video in
                         VideoCardView(video: video, compact: false)
-                            .accessibilityIdentifier("video.card.\(video.id)")
+                            .accessibilityIdentifier(AccessibilityID.Channel.videoCard(video.id))
                             .onTapGesture {
                                 #if os(iOS)
                                 playerRouter.open(video: video, api: api)
                                 #else
                                 selectedVideo = video
                                 #endif
-                            }
-                            .onAppear {
-                                if video.id == vm.videos.last?.id { vm.loadMore() }
                             }
                     }
                 }
@@ -239,13 +293,10 @@ public struct ChannelView: View {
                 VideoCardView(video: video)
                     .aspectRatio(9 / 16, contentMode: .fit)
                     .onTapGesture { selectShort(video, from: videos) }
-                    .onAppear {
-                        if video.id == vm.videos.last?.id { vm.loadMore() }
-                    }
             }
         }
         .padding(.horizontal)
-        .accessibilityIdentifier("channel.videoGrid")
+        .accessibilityIdentifier(AccessibilityID.Channel.videoGrid)
     }
 
     private func selectShort(_ video: Video, from videos: [Video]) {
@@ -275,7 +326,7 @@ public struct ChannelView: View {
                 Text(channel.title)
                     .font(.title2)
                     .fontWeight(.semibold)
-                    .accessibilityIdentifier("channel.title")
+                    .accessibilityIdentifier(AccessibilityID.Channel.title)
                 if let subs = channel.subscriberCount {
                     Text(subs)
                         .font(.subheadline)
@@ -299,12 +350,12 @@ public struct ChannelView: View {
                     )
                 }
                 .buttonStyle(.bordered)
-                .accessibilityIdentifier("channel.followButton")
+                .accessibilityIdentifier(AccessibilityID.Channel.followButton)
             }
         }
         .padding()
         .background(.background)
-        .accessibilityIdentifier("channel.header")
+        .accessibilityIdentifier(AccessibilityID.Channel.header)
     }
 
     private func toggleFollow(_ channel: Channel) async {

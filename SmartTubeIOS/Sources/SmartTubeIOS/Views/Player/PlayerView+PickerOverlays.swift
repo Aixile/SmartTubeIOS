@@ -412,16 +412,17 @@ extension PlayerView {
                 Divider()
                 ScrollView {
                     VStack(spacing: 0) {
-                        // "Auto" row — resets to HLS default and clears the saved preference
+                        // Persist a creator-original preference for every future video.
                         Button {
                             vm.selectAudioTrack(nil)
+                            store.settings.preferredAudioLanguage = AudioTrackPreference.original
                             showAudioTrackPicker = false
                         } label: {
                             HStack {
-                                Text("Auto")
+                                Text("Original audio (default)")
                                     .foregroundStyle(.primary)
                                 Spacer()
-                                if vm.selectedAudioTrack == nil {
+                                if vm.settings.preferredAudioLanguage == AudioTrackPreference.original {
                                     Image(systemName: AppSymbol.checkmark)
                                         .foregroundStyle(Color.accentColor)
                                 }
@@ -439,6 +440,7 @@ extension PlayerView {
                         ForEach(vm.availableAudioTracks) { track in
                             Button {
                                 vm.selectAudioTrack(track)
+                                store.settings.preferredAudioLanguage = AudioTrackPreference.savedPreference(for: track)
                                 showAudioTrackPicker = false
                             } label: {
                                 HStack {

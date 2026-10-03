@@ -46,10 +46,9 @@ struct TVSeekButtonTests {
         #expect(AppSettings.availableSeekOptions.contains(settings.seekForwardSeconds))
     }
 
-    /// preferredAudioLanguage default must be nil — the tvOS Picker
-    /// represents this as "System Default".
-    @Test func preferredAudioLanguageDefaultIsNil() {
+    /// The default is a valid picker option on every platform.
+    @Test func preferredAudioLanguageDefaultIsOriginal() {
         let settings = AppSettings()
-        #expect(settings.preferredAudioLanguage == nil)
+        #expect(settings.preferredAudioLanguage == AudioTrackPreference.original)
     }
 }

@@ -55,7 +55,7 @@ extension InnerTubeAPI {
             "fetchChannelVideos browseId=\(channelId, privacy: .public) hasContinuation=\(continuationToken != nil, privacy: .public) params=\(videosParams, privacy: .public)"
         )
         let data = try await post(endpoint: "browse", body: body)
-        return try parseVideoGroup(from: data, title: nil)
+        return try parseVideoGroup(from: data, title: nil, includeMembersOnly: true)
     }
 
     // MARK: - Private channel helpers
@@ -228,7 +228,7 @@ extension InnerTubeAPI {
             thumbnailURL: thumbURL,
             subscriberCount: subscribers
         )
-        let videoGroup = try parseVideoGroup(from: json, title: title)
+        let videoGroup = try parseVideoGroup(from: json, title: title, includeMembersOnly: true)
         return (channel, videoGroup)
     }
 

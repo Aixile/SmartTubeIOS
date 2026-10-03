@@ -55,25 +55,27 @@ final class AudioTrackManager {
         onHLSLanguageChange = nil
     }
 
-    /// Switches to `track`, or resets to the HLS default when `nil`.
+    /// Switches to `track`, or the creator’s original track when `nil`.
     /// Persists the language code in `AppSettings`.
     /// For the YT-EXT-AUDIO-CONTENT-ID HLS path (no audioSelectionGroup), fires
     /// onHLSLanguageChange so the caller can reload the AVPlayerItem with the right language.
     func selectAudioTrack(_ track: AudioTrack?) {
-        selectedAudioTrack = track
-        delegate?.settings.preferredAudioLanguage = track?.languageCode
+        let selected =
+            track ?? AudioTrackPreference.select(from: availableAudioTracks, preferred: AudioTrackPreference.original)
+        selectedAudioTrack = selected
+        delegate?.settings.preferredAudioLanguage = AudioTrackPreference.savedPreference(for: track)
         if let group = audioSelectionGroup {
             guard let item = player.currentItem else { return }
-            if let track, let option = audioOptionsByID[track.id] {
+            if let selected, let option = audioOptionsByID[selected.id] {
                 item.select(option, in: group)
             } else {
                 item.selectMediaOptionAutomatically(in: group)
             }
         } else if let onChange = onHLSLanguageChange {
             // YT-EXT-AUDIO-CONTENT-ID path: reload AVPlayerItem filtered for selected language
-            onChange(track)
+            onChange(selected)
         }
-        playerLog.notice("Audio → \(track?.name ?? "Auto (preference cleared)")")
+        playerLog.notice("Audio → \(selected?.name ?? "Original")")
     }
 
     /// Populates available audio tracks from YouTube's YT-EXT-AUDIO-CONTENT-ID HLS manifest
@@ -82,16 +84,8 @@ final class AudioTrackManager {
     func loadHLSVariantTracks(_ tracks: [AudioTrack]) {
         guard !tracks.isEmpty else { return }
         availableAudioTracks = tracks
-        let preferred = delegate?.settings.preferredAudioLanguage
-        if let pref = preferred,
-            let preferredTrack = tracks.first(where: { $0.languageCode == pref })
-        {
-            selectedAudioTrack = preferredTrack
-        } else if let originalTrack = tracks.first(where: { $0.isOriginal }) {
-            selectedAudioTrack = originalTrack
-        } else {
-            selectedAudioTrack = tracks.first
-        }
+        selectedAudioTrack = AudioTrackPreference.select(
+            from: tracks, preferred: delegate?.settings.preferredAudioLanguage)
         playerLog.notice(
             "AudioTrackManager: loaded \(tracks.count) HLS variant track(s) — selected: \(selectedAudioTrack?.name ?? "nil")"
         )
@@ -110,7 +104,7 @@ final class AudioTrackManager {
             let group = try? await asset.loadMediaSelectionGroup(for: .audible)
             let groupDesc = group.map { "\($0.options.count) option(s)" } ?? "nil"
             playerLog.notice("AudioTrackManager: loadMediaSelectionGroup=\(groupDesc)")
-            guard let group, !group.options.isEmpty else { return }
+            guard player.currentItem === item, let group, !group.options.isEmpty else { return }
             var tracks: [AudioTrack] = []
             var optionMap: [String: AVMediaSelectionOption] = [:]
 
@@ -126,6 +120,11 @@ final class AudioTrackManager {
             let phase1Discriminates =
                 !mainContentOptions.isEmpty
                 && mainContentOptions.count < group.options.count
+            let explicitlyOriginal = group.options.filter {
+                $0.displayName.localizedCaseInsensitiveContains("original")
+                    && !$0.displayName.localizedCaseInsensitiveContains("dubbed")
+            }
+            let nonAuxiliary = group.options.filter { !$0.hasMediaCharacteristic(.isAuxiliaryContent) }
 
             let defaultLocale =
                 group.defaultOption?.locale?.identifier
@@ -141,7 +140,7 @@ final class AudioTrackManager {
                 "AudioTrackManager: \(group.options.count) option(s), phase1Discriminates=\(phase1Discriminates) (mainContent=\(mainContentOptions.count)) defaultOption=\(defaultLocale) defaultInOptions=\(defaultFoundInOptions)"
             )
 
-            for (_, option) in group.options.enumerated() {
+            for option in group.options {
                 let locale =
                     option.locale?.identifier
                     ?? option.extendedLanguageTag
@@ -160,21 +159,28 @@ final class AudioTrackManager {
                 let isDefault =
                     group.defaultOption.map { def in
                         def === option
-                            || (def.locale != nil && def.locale == option.locale)
-                            || (def.extendedLanguageTag != nil && def.extendedLanguageTag == option.extendedLanguageTag)
+                            || (!defaultFoundInOptions && def.displayName == option.displayName
+                                && def.extendedLanguageTag == option.extendedLanguageTag)
                     } ?? false
                 // Phase 1: use AVFoundation's authoritative "main program content" characteristic,
                 // but ONLY when it discriminates (not all tracks carry it).
                 // Phase 2: fall back to HLS DEFAULT=YES identity check.
-                let isOriginal: Bool = phase1Discriminates ? isMainContent : isDefault
+                let isOriginal: Bool
+                if !explicitlyOriginal.isEmpty {
+                    isOriginal = explicitlyOriginal.contains { $0 === option }
+                } else if nonAuxiliary.count == 1 {
+                    isOriginal = nonAuxiliary.first === option
+                } else {
+                    isOriginal = phase1Discriminates ? isMainContent : isDefault
+                }
                 playerLog.notice(
                     "  AudioOption: locale=\(locale) isMainContent=\(isMainContent) isAuxiliary=\(isAuxiliary) isDefault=\(isDefault) isOriginal=\(isOriginal) displayName=\(displayName)"
                 )
                 let track = AudioTrack(
-                    id: locale, name: displayName,
+                    id: "\(locale):\(option.displayName)", name: displayName,
                     languageCode: locale, isOriginal: isOriginal)
                 tracks.append(track)
-                optionMap[locale] = option
+                optionMap[track.id] = option
             }
             var originalCount = tracks.filter(\.isOriginal).count
             playerLog.notice(
@@ -241,33 +247,9 @@ final class AudioTrackManager {
 
             self.availableAudioTracks = tracks
 
-            let preferred = self.delegate?.settings.preferredAudioLanguage
-            let autoSelect: AudioTrack? = {
-                if let lang = preferred {
-                    if lang == "original" {
-                        return tracks.first(where: \.isOriginal) ?? tracks.first
-                    }
-                    if let exact = tracks.first(where: { $0.languageCode == lang }) { return exact }
-                    let base = lang.components(separatedBy: "-").first ?? lang
-                    return tracks.first(where: { $0.languageCode.hasPrefix(base) })
-                        ?? tracks.first(where: \.isOriginal)
-                }
-                for deviceLang in Locale.preferredLanguages {
-                    if let exact = tracks.first(where: { $0.languageCode == deviceLang }) { return exact }
-                    let base = deviceLang.components(separatedBy: "-").first ?? deviceLang
-                    if let match = tracks.first(where: { $0.languageCode.hasPrefix(base) }) { return match }
-                }
-                if let original = tracks.first(where: \.isOriginal) { return original }
-                let englishPrefixes = ["en-", "en_"]
-                if let english = tracks.first(where: { $0.languageCode == "en" })
-                    ?? tracks.first(where: { lang in
-                        englishPrefixes.contains(where: { lang.languageCode.hasPrefix($0) })
-                    })
-                {
-                    return english
-                }
-                return tracks.first
-            }()
+            guard self.player.currentItem === item else { return }
+            let autoSelect = AudioTrackPreference.select(
+                from: tracks, preferred: self.delegate?.settings.preferredAudioLanguage)
             self.selectedAudioTrack = autoSelect
             if let autoSelect, let option = optionMap[autoSelect.id] {
                 item.select(option, in: group)

@@ -39,9 +39,20 @@ public struct RootView: View {
             #endif
         }
         .environment(\.isLandscapeLayout, isLandscapeLayout)
-        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { isLandscapeLayout = $0 }
+        .onGeometryChange(for: Bool.self) {
+            $0.size.width > $0.size.height
+        } action: {
+            isLandscapeLayout = $0
+        }
         .tint(store.settings.accentColor.color)
         .preferredColorScheme(store.settings.themeName.colorScheme)
+        .onChange(of: store.settings.feedCountryCode) { _, country in
+            Task {
+                await api.setFeedCountry(country)
+                guard store.settings.feedCountryCode == country else { return }
+                browseVM.loadContent(refresh: true, source: "feedCountryChanged")
+            }
+        }
         #if !os(tvOS)
         .onChange(of: cardDownloadService.state) { _, newState in
             switch newState {

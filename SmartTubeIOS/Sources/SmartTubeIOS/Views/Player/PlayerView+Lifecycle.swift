@@ -118,29 +118,11 @@ extension PlayerView {
                 #endif
 
                 #if os(iOS)
-                // Horizontal swipe layer: left → next video, right → previous video.
-                // Uses UIKit-level UIPanGestureRecognizer so it fires above AVPlayerLayer.
+                // Right swipe returns to browsing; video changes use explicit buttons.
                 PlayerSwipeGestureOverlay(
-                    onSwipeLeft: {
-                        swipeLog.debug(
-                            "[swipe-overlay] onSwipeLeft — isTransitioning=\(isTransitioning) isScrubbing=\(vm.isScrubbing) controlsVisible=\(vm.controlsVisible) hasNext=\(vm.hasNext)"
-                        )
-                        guard !isTransitioning else { return }
-                        if vm.hasNext {
-                            performHorizontalTransition(direction: -1, screenWidth: geo.size.width) { vm.playNext() }
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { slideOffset = 0 }
-                        }
-                    },
-                    onSwipeRight: {
-                        swipeLog.debug(
-                            "[swipe-overlay] onSwipeRight — isTransitioning=\(isTransitioning) isScrubbing=\(vm.isScrubbing) controlsVisible=\(vm.controlsVisible) hasPrevious=\(vm.hasPrevious)"
-                        )
-                        guard !isTransitioning else { return }
-                        if vm.hasPrevious {
-                            performHorizontalTransition(direction: 1, screenWidth: geo.size.width) { vm.playPrevious() }
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { slideOffset = 0 }
+                    onReturn: {
+                        Task { @MainActor in
+                            if store.settings.miniPlayerEnabled { playerState.minimize() } else { playerState.stop() }
                         }
                     },
                     onTap: {
@@ -163,20 +145,8 @@ extension PlayerView {
                         }
                     },
                     onTwoFingerTap: { vm.toggleStatsForNerds() },
-                    onPanChanged: { dx in
-                        guard !isTransitioning else { return }
-                        if (dx < 0 && vm.hasNext) || (dx > 0 && vm.hasPrevious) {
-                            slideOffset = dx
-                        } else {
-                            slideOffset = dx * 0.15
-                        }
-                    },
-                    onSwipeCancelled: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { slideOffset = 0 }
-                    },
                     onLongPressStart: { vm.beginHoldSpeed() },
                     onLongPressEnd: { vm.endHoldSpeed() },
-                    onSwipeDown: { store.settings.miniPlayerEnabled ? playerState.minimize() : playerState.stop() },
                     // Disabled during scrubbing so the Slider can claim touches uncontested.
                     // Also disabled when controls are visible so SwiftUI buttons (Menu, etc.)
                     // receive touches directly without UIKit gesture interference.
@@ -229,35 +199,6 @@ extension PlayerView {
                         .ignoresSafeArea()
                         .transition(.opacity)
                         .animation(.easeInOut(duration: 0.25), value: vm.controlsVisible)
-                        #if os(iOS)
-                    // Allow horizontal swipe navigation even when the controls overlay is
-                    // on screen.  .simultaneousGesture fires alongside button taps so the
-                    // controls remain fully interactive; only clear horizontal drags
-                    // (abs(dx) > abs(dy), distance > 50 pt) trigger navigation.
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 50, coordinateSpace: .global)
-                            .onEnded { value in
-                                let dx = value.translation.width
-                                let dy = value.translation.height
-                                guard !isTransitioning, !vm.isScrubbing else { return }
-                                // Swipe-down → minimize to mini-player (or stop if disabled)
-                                if dy > 50, abs(dy) > abs(dx) {
-                                    store.settings.miniPlayerEnabled ? playerState.minimize() : playerState.stop()
-                                    return
-                                }
-                                guard abs(dx) > abs(dy) else { return }
-                                if dx < 0, vm.hasNext {
-                                    performHorizontalTransition(direction: -1, screenWidth: geo.size.width) {
-                                        vm.playNext()
-                                    }
-                                } else if dx > 0, vm.hasPrevious {
-                                    performHorizontalTransition(direction: 1, screenWidth: geo.size.width) {
-                                        vm.playPrevious()
-                                    }
-                                }
-                            }
-                    )
-                        #endif
                 }
 
                 // Error banner
@@ -317,7 +258,6 @@ extension PlayerView {
                 // Picker / sheet overlays — see PlayerView+Overlays.swift
                 overlayStack
             }
-            .offset(x: slideOffset)
         }
         .background(Color.black.ignoresSafeArea())
         #if os(iOS)
@@ -354,9 +294,8 @@ extension PlayerView {
             .modifier(
                 ConditionalMoveCommand(enabled: !isAnyOverlayVisible && !isSkipToastActive) { direction in
                     swipeLog.debug(
-                        "[tv] onMoveCommand dir=\(String(describing: direction)) isTransitioning=\(isTransitioning) highlighted=\(String(describing: highlightedControl))"
+                        "[tv] onMoveCommand dir=\(String(describing: direction)) highlighted=\(String(describing: highlightedControl))"
                     )
-                    guard !isTransitioning else { return }
                     if let current = highlightedControl {
                         // Controls-nav mode: move the highlight between buttons.
                         highlightedControl = tvNextControl(from: current, direction: direction)

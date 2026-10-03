@@ -44,6 +44,7 @@ public struct AppSettings: Codable {
 
     // MARK: UI
     public var defaultSection: String
+    public var feedCountryCode: String
     public var compactThumbnails: Bool
     /// Loads 1280×720 CDN thumbnails instead of the smaller API-provided ones.
     public var highResThumbnails: Bool
@@ -135,7 +136,8 @@ public struct AppSettings: Codable {
 
     // MARK: Audio
     /// BCP 47 language code of the user's preferred audio track (e.g. "es", "fr", "pt-BR").
-    /// `nil` means use the HLS default. Set implicitly when the user picks a track in the player.
+    /// Defaults to the creator's original audio; `system` explicitly follows the device language.
+    /// Legacy `nil` preferences are treated as original audio.
     public var preferredAudioLanguage: String?
 
     /// BCP 47 language code of the user's last selected caption track (e.g. "en", "es").
@@ -270,6 +272,7 @@ public struct AppSettings: Codable {
         shuffleEnabled = false
         queueShuffleEnabled = false
         defaultSection = BrowseSection.SectionType.home.rawValue
+        feedCountryCode = FeedCountry.defaultCode
         compactThumbnails = false
         highResThumbnails = false
         hideWatchedVideos = false
@@ -304,7 +307,7 @@ public struct AppSettings: Codable {
         sponsorBlockMinSegmentDuration = 0
         sponsorBlockExcludedChannels = [:]
         blockedChannels = [:]
-        preferredAudioLanguage = nil
+        preferredAudioLanguage = AudioTrackPreference.original
         preferredCaptionLanguage = nil
         deArrowEnabled = false
         poTokenServiceURL = nil
@@ -359,6 +362,7 @@ extension AppSettings {
         case shuffleEnabled
         case queueShuffleEnabled
         case defaultSection
+        case feedCountryCode
         case compactThumbnails
         case highResThumbnails
         case hideWatchedVideos
@@ -412,6 +416,8 @@ extension AppSettings {
         shuffleEnabled = c.safeDecode(Bool.self, forKey: .shuffleEnabled, default: d.shuffleEnabled)
         queueShuffleEnabled = c.safeDecode(Bool.self, forKey: .queueShuffleEnabled, default: d.queueShuffleEnabled)
         defaultSection = c.safeDecode(String.self, forKey: .defaultSection, default: d.defaultSection)
+        feedCountryCode = FeedCountry.normalized(
+            c.safeDecode(String.self, forKey: .feedCountryCode, default: d.feedCountryCode))
         compactThumbnails = c.safeDecode(Bool.self, forKey: .compactThumbnails, default: d.compactThumbnails)
         highResThumbnails = c.safeDecode(Bool.self, forKey: .highResThumbnails, default: d.highResThumbnails)
         hideWatchedVideos = c.safeDecode(Bool.self, forKey: .hideWatchedVideos, default: d.hideWatchedVideos)
@@ -450,8 +456,10 @@ extension AppSettings {
         sponsorBlockExcludedChannels = c.safeDecode(
             [String: String].self, forKey: .sponsorBlockExcludedChannels, default: d.sponsorBlockExcludedChannels)
         blockedChannels = c.safeDecode([String: String].self, forKey: .blockedChannels, default: d.blockedChannels)
-        preferredAudioLanguage = c.safeDecode(
-            String?.self, forKey: .preferredAudioLanguage, default: d.preferredAudioLanguage)
+        preferredAudioLanguage =
+            c.safeDecode(
+                String?.self, forKey: .preferredAudioLanguage, default: d.preferredAudioLanguage)
+            ?? AudioTrackPreference.original
         preferredCaptionLanguage = c.safeDecode(
             String?.self, forKey: .preferredCaptionLanguage, default: d.preferredCaptionLanguage)
         deArrowEnabled = c.safeDecode(Bool.self, forKey: .deArrowEnabled, default: d.deArrowEnabled)

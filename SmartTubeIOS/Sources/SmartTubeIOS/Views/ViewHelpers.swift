@@ -133,6 +133,10 @@ enum AppSymbol {
     static let chevronLeft = "chevron.left"
     static let chevronUp = "chevron.up"
     static let chevronDown = "chevron.down"
+    static let topics = "square.grid.2x2"
+    static let globe = "globe"
+    static let filters = "line.3.horizontal.decrease.circle"
+    static let membersOnly = "lock.fill"
 
     // MARK: - Playback controls
     static let previousTrack = "backward.end.fill"

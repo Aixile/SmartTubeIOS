@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import SmartTubeIOSCore
 import SwiftUI
 
 #if canImport(UIKit)
@@ -166,22 +167,18 @@ struct HoldSpeedBadge: View {
 // MARK: - SwipeGestureOverlay (horizontal)
 
 #if os(iOS)
-/// Left swipe → `onSwipeLeft`, right swipe → `onSwipeRight`, tap → `onTap`.
+/// Right/down swipes return to browsing; tap reveals the transport controls.
 /// Set `isEnabled = false` (e.g. while the progress slider is being scrubbed) to
 /// temporarily suppress pan recognition so the scrub drag is not mistaken for a swipe.
 /// Named `PlayerSwipeGestureOverlay` to avoid a module-level clash with the
 /// identically-structured private copy in `ShortsPlayerView.swift`.
 struct PlayerSwipeGestureOverlay: UIViewRepresentable {
-    var onSwipeLeft: () -> Void
-    var onSwipeRight: () -> Void
+    var onReturn: () -> Void
     var onTap: () -> Void
     var onDoubleTap: (CGFloat) -> Void = { _ in }
     var onTwoFingerTap: () -> Void = {}
-    var onPanChanged: ((CGFloat) -> Void)?
-    var onSwipeCancelled: (() -> Void)?
     var onLongPressStart: (() -> Void)?
     var onLongPressEnd: (() -> Void)?
-    var onSwipeDown: (() -> Void)? = nil
     var isEnabled: Bool = true
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -247,33 +244,15 @@ struct PlayerSwipeGestureOverlay: UIViewRepresentable {
         weak var tap: UITapGestureRecognizer?
         weak var doubleTap: UITapGestureRecognizer?
         weak var longPress: UILongPressGestureRecognizer?
-        private let minDistance: CGFloat = 40
 
         init(_ parent: PlayerSwipeGestureOverlay) { self.parent = parent }
 
         @MainActor @objc func handlePan(_ gr: UIPanGestureRecognizer) {
             let t = gr.translation(in: gr.view)
-            switch gr.state {
-            case .changed:
-                // Only forward horizontal pan for slide-offset animation.
-                if abs(t.x) >= abs(t.y) { parent.onPanChanged?(t.x) }
-            case .ended:
-                // Swipe-down: vertical-dominant, downward, meets threshold → minimize
-                if abs(t.y) > minDistance, t.y > 0, abs(t.y) > abs(t.x) {
-                    parent.onSwipeCancelled?()  // reset any horizontal offset
-                    parent.onSwipeDown?()
-                    return
-                }
-                guard abs(t.x) > minDistance, abs(t.x) > abs(t.y) else {
-                    parent.onSwipeCancelled?()
-                    return
-                }
-                if t.x < 0 { parent.onSwipeLeft() } else { parent.onSwipeRight() }
-            case .cancelled, .failed:
-                parent.onSwipeCancelled?()
-            default:
-                break
-            }
+            guard gr.state == .ended,
+                PlayerReturnGesture.matches(horizontal: t.x, vertical: t.y, allowsSwipeDown: true)
+            else { return }
+            parent.onReturn()
         }
 
         @MainActor @objc func handleTap() { parent.onTap() }

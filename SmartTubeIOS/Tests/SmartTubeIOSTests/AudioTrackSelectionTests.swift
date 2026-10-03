@@ -14,42 +14,13 @@ struct AudioTrackSelectionTests {
         AudioTrack(id: code, name: code, languageCode: code, isOriginal: isOriginal)
     }
 
-    /// Simulates the auto-selection waterfall from PlaybackViewModel+AudioTracks
-    /// without an AVPlayer. Mirrors the exact logic in loadAudioTracks(from:).
-    /// Pass `deviceLanguages` to simulate Locale.preferredLanguages (defaults to empty).
+    /// Exercises the production selection policy with deterministic device languages.
     private func autoSelect(
         tracks: [AudioTrack],
         preferred: String?,
         deviceLanguages: [String] = []
     ) -> AudioTrack? {
-        // 1. Saved preference / Settings-level independent language choice
-        if let lang = preferred {
-            if lang == "original" {
-                return tracks.first(where: \.isOriginal) ?? tracks.first
-            }
-            if let exact = tracks.first(where: { $0.languageCode == lang }) { return exact }
-            let base = lang.components(separatedBy: "-").first ?? lang
-            return tracks.first(where: { $0.languageCode.hasPrefix(base) })
-                ?? tracks.first(where: \.isOriginal)
-        }
-        // 2. Device preferred languages — before DEFAULT=YES to avoid dubbed tracks
-        //    overriding the user's expected language (issue #54 regression fix).
-        for deviceLang in deviceLanguages {
-            if let exact = tracks.first(where: { $0.languageCode == deviceLang }) { return exact }
-            let base = deviceLang.components(separatedBy: "-").first ?? deviceLang
-            if let match = tracks.first(where: { $0.languageCode.hasPrefix(base) }) { return match }
-        }
-        // 3. HLS DEFAULT=YES original
-        if let original = tracks.first(where: \.isOriginal) { return original }
-        // 4. English track
-        let englishPrefixes = ["en-", "en_"]
-        if let english = tracks.first(where: { $0.languageCode == "en" })
-            ?? tracks.first(where: { lang in englishPrefixes.contains(where: { lang.languageCode.hasPrefix($0) }) })
-        {
-            return english
-        }
-        // 5. First track
-        return tracks.first
+        AudioTrackPreference.select(from: tracks, preferred: preferred, deviceLanguages: deviceLanguages)
     }
 
     // MARK: - Tests
@@ -65,15 +36,14 @@ struct AudioTrackSelectionTests {
         #expect(selected?.languageCode == "en")
     }
 
-    /// When no HLS DEFAULT=YES exists, English is chosen over other languages as
-    /// the safer fallback (most YouTube originals are English).
-    @Test func englishFallbackWhenNoDefaultTrack() {
+    /// When original metadata is absent, retain playlist order rather than assuming English.
+    @Test func playlistOrderFallbackWhenNoOriginalTrack() {
         let tracks = [
             track("ar", isOriginal: false),  // AI-dubbed Arabic — first in list, no DEFAULT
             track("en", isOriginal: false),  // English — second in list
         ]
         let selected = autoSelect(tracks: tracks, preferred: nil)
-        #expect(selected?.languageCode == "en")
+        #expect(selected?.languageCode == "ar")
     }
 
     /// Saved user preference always wins, even when a DEFAULT=YES track exists.
@@ -162,16 +132,15 @@ struct AudioTrackSelectionTests {
         #expect(selected?.languageCode == "en")
     }
 
-    // MARK: - Task #54: Device language before DEFAULT=YES
+    // MARK: - Explicit opt-in to device language
 
-    /// Regression: Arabic is DEFAULT=YES in the HLS manifest (YouTube sets this dynamically),
-    /// but the device language is English — English should win (issue #24 / task #54).
-    @Test func deviceLanguagePrecedesHLSDefault_whenDefaultIsArabic() {
+    /// Following the device language is available only when explicitly selected.
+    @Test func optedInDeviceLanguagePrecedesOriginal_whenOriginalIsArabic() {
         let tracks = [
             track("ar", isOriginal: true),  // Arabic is DEFAULT=YES in HLS manifest
             track("en", isOriginal: false),  // English available but not DEFAULT
         ]
-        let selected = autoSelect(tracks: tracks, preferred: nil, deviceLanguages: ["en"])
+        let selected = autoSelect(tracks: tracks, preferred: AudioTrackPreference.system, deviceLanguages: ["en"])
         #expect(selected?.languageCode == "en")
     }
 
@@ -181,7 +150,7 @@ struct AudioTrackSelectionTests {
             track("en", isOriginal: true),  // English is DEFAULT=YES
             track("ar", isOriginal: false),  // Arabic dub
         ]
-        let selected = autoSelect(tracks: tracks, preferred: nil, deviceLanguages: ["ar"])
+        let selected = autoSelect(tracks: tracks, preferred: AudioTrackPreference.system, deviceLanguages: ["ar"])
         #expect(selected?.languageCode == "ar")
     }
 
@@ -192,7 +161,7 @@ struct AudioTrackSelectionTests {
             track("en", isOriginal: false),  // English
         ]
         // Device is Japanese, no Japanese track → falls back to DEFAULT=YES (Arabic)
-        let selected = autoSelect(tracks: tracks, preferred: nil, deviceLanguages: ["ja"])
+        let selected = autoSelect(tracks: tracks, preferred: AudioTrackPreference.system, deviceLanguages: ["ja"])
         #expect(selected?.languageCode == "ar")
     }
 
@@ -252,7 +221,7 @@ struct AudioTrackSelectionTests {
     @Test("Fix #126: single-track manifest with device language — track is selected")
     func singleTrackManifestWithDeviceLanguageReturnsTrack() {
         let tracks = [track("de", isOriginal: true)]
-        let selected = autoSelect(tracks: tracks, preferred: nil, deviceLanguages: ["en"])
+        let selected = autoSelect(tracks: tracks, preferred: AudioTrackPreference.system, deviceLanguages: ["en"])
         #expect(
             selected?.languageCode == "de",
             "Fix #126: single-track manifest falls back to the available track when device language has no match")

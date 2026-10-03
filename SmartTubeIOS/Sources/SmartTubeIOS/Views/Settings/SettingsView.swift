@@ -143,9 +143,11 @@ public struct SettingsView: View {
                 }
             }
             .accessibilityIdentifier("settings.preferredQualityPicker")
+            #endif
 
             Picker("Preferred Audio Language", selection: $store.settings.preferredAudioLanguage) {
-                Text("System Default").tag(nil as String?)
+                Text("Original audio (default)").tag(AudioTrackPreference.original as String?)
+                Text("Follow device language").tag(AudioTrackPreference.system as String?)
                 Divider()
                 Text("English").tag("en" as String?)
                 Text("Spanish").tag("es" as String?)
@@ -155,11 +157,12 @@ public struct SettingsView: View {
                 Text("Korean").tag("ko" as String?)
                 Text("Portuguese (Brazil)").tag("pt-BR" as String?)
                 Text("Chinese (Simplified)").tag("zh-Hans" as String?)
-                Divider()
-                Text("Original Track Only").tag("original" as String?)
+                Text("Chinese (Traditional)").tag("zh-Hant" as String?)
             }
-            .accessibilityIdentifier("settings.preferredAudioLanguageRow")
-            #endif
+            .accessibilityIdentifier(AccessibilityID.Player.audioPreference)
+            Text("Original audio keeps the creator’s voice instead of automatically choosing a translated dub.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             #if os(tvOS)
             Picker("Seek Back", selection: $store.settings.seekBackSeconds) {
@@ -234,6 +237,7 @@ public struct SettingsView: View {
     private var generalSection: some View {
         @Bindable var store = store
         return Section {
+            FeedCountryButton()
             Picker("Watch History", selection: $store.settings.historyState) {
                 Text("Enabled").tag(AppSettings.HistoryState.enabled)
                 Text("Disabled").tag(AppSettings.HistoryState.disabled)

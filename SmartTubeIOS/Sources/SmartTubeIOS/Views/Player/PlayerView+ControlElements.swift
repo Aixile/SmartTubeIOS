@@ -224,6 +224,16 @@ struct PlayerControlsOverlay: View {
 
             // Bottom: progress bar + prev/next
             VStack(spacing: 8) {
+                #if os(iOS)
+                PlayerVideoNavigationButtons(
+                    hasPrevious: vm.hasPrevious && !vm.isLoading,
+                    hasNext: vm.hasNext && !vm.isLoading,
+                    previousIdentifier: AccessibilityID.Player.previousVideo,
+                    nextIdentifier: AccessibilityID.Player.nextVideo,
+                    onPrevious: { vm.playPrevious() }, onNext: { vm.playNext() }
+                )
+                .padding(.horizontal, 20)
+                #endif
                 // Current chapter title — shown whenever chapters are available
                 if let chapter = vm.currentChapter {
                     Text(chapter.title)
@@ -245,7 +255,7 @@ struct PlayerControlsOverlay: View {
                         highlighted: highlightedControl == .prevVideo,
                         scale: 1.55,
                         shadowRadius: 14,
-                        identifier: "player.prevBtn",
+                        identifier: AccessibilityID.Player.previousVideo,
                         enabled: vm.hasPrevious && !vm.isLoading,
                         width: 64,
                         height: 64
@@ -254,22 +264,17 @@ struct PlayerControlsOverlay: View {
                             .font(.system(size: 18 * controlScale))
                             .foregroundStyle(vm.hasPrevious && !vm.isLoading ? .white : .white.opacity(0.3))
                     }
-                    #else
+                    #elseif !os(iOS)
                     Button {
                         vm.playPrevious()
                     } label: {
                         Image(systemName: AppSymbol.previousTrack)
                             .font(.system(size: 18 * controlScale))
                             .foregroundStyle(vm.hasPrevious && !vm.isLoading ? .white : .white.opacity(0.3))
-                            #if os(iOS)
-                        .padding(8)
-                        .background(.black.opacity(0.4))
-                        .clipShape(Circle())
-                            #endif
                     }
                     .buttonStyle(.plain)
                     .disabled(!vm.hasPrevious || vm.isLoading)
-                    .accessibilityIdentifier("player.prevBtn")
+                    .accessibilityIdentifier(AccessibilityID.Player.previousVideo)
                     #endif
 
                     // Previous chapter button — only present when the video has chapters
@@ -381,7 +386,7 @@ struct PlayerControlsOverlay: View {
                         highlighted: highlightedControl == .nextVideo,
                         scale: 1.55,
                         shadowRadius: 14,
-                        identifier: "player.nextBtn",
+                        identifier: AccessibilityID.Player.nextVideo,
                         enabled: vm.hasNext,
                         width: 64,
                         height: 64
@@ -390,22 +395,17 @@ struct PlayerControlsOverlay: View {
                             .font(.system(size: 18 * controlScale))
                             .foregroundStyle(vm.hasNext ? .white : .white.opacity(0.3))
                     }
-                    #else
+                    #elseif !os(iOS)
                     Button {
                         vm.playNext()
                     } label: {
                         Image(systemName: AppSymbol.nextTrack)
                             .font(.system(size: 18 * controlScale))
                             .foregroundStyle(vm.hasNext ? .white : .white.opacity(0.3))
-                            #if os(iOS)
-                        .padding(8)
-                        .background(.black.opacity(0.4))
-                        .clipShape(Circle())
-                            #endif
                     }
                     .buttonStyle(.plain)
                     .disabled(!vm.hasNext)
-                    .accessibilityIdentifier("player.nextBtn")
+                    .accessibilityIdentifier(AccessibilityID.Player.nextVideo)
                     #endif
                 }
                 .font(.caption)
@@ -429,6 +429,19 @@ struct PlayerControlsOverlay: View {
                 controlsLog.notice("[menu] gradient background tap — controlsVisible=\(vm.controlsVisible)")
                 vm.toggleControls()
             }
+            #if os(iOS)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: PlayerReturnGesture.minimumDistance)
+                    .onEnded { value in
+                        guard !vm.isScrubbing,
+                            PlayerReturnGesture.matches(
+                                horizontal: value.translation.width, vertical: value.translation.height,
+                                allowsSwipeDown: true)
+                        else { return }
+                        if store.settings.miniPlayerEnabled { playerState.minimize() } else { playerState.stop() }
+                    }
+            )
+            #endif
         )
         #if os(tvOS)
         // Controls overlay is not a focus section — the outer view handles all input.
@@ -690,37 +703,9 @@ extension PlayerControlsOverlay {
     }
 }
 
-// MARK: - Slide transition + toast/error (PlayerView extension)
+// MARK: - Toast/error (PlayerView extension)
 
 extension PlayerView {
-
-    // MARK: - Slide transition
-
-    /// Animates the current content off-screen in `direction` (-1 = left, +1 = right),
-    /// runs `action` to load the next/previous video, then slides the new content in
-    /// from the opposite side.
-    func performHorizontalTransition(direction: CGFloat, screenWidth: CGFloat, action: @escaping () -> Void) {
-        // Set the re-entry guard synchronously so any concurrent gesture event
-        // arriving before the Task runs still sees isTransitioning == true.
-        isTransitioning = true
-        // Defer ALL SwiftUI state mutations (incl. the initial slide-out animation)
-        // into the async Task so none of them execute synchronously inside UIKit's
-        // touch-event delivery pass. On iOS 26 the UpdateCycle framework throws when
-        // @Observable/@State mutations happen synchronously during event dispatch.
-        Task { @MainActor in
-            withAnimation(.easeIn(duration: 0.2)) {
-                slideOffset = direction * screenWidth
-            }
-            try? await Task.sleep(for: .milliseconds(220))
-            action()  // load new video, clears AVPlayer
-            slideOffset = -direction * screenWidth  // snap to opposite side (off-screen)
-            withAnimation(.easeOut(duration: 0.25)) {
-                slideOffset = 0  // slide new content in
-            }
-            try? await Task.sleep(for: .milliseconds(270))
-            isTransitioning = false
-        }
-    }
 
     // MARK: - Toast / error
 
@@ -874,7 +859,7 @@ extension PlayerControlsOverlay {
     }
 
     private var audioTrackLabel: String {
-        vm.selectedAudioTrack.map { $0.languageCode } ?? "Auto"
+        vm.selectedAudioTrack.map { $0.isOriginal ? "Original" : $0.languageCode } ?? "Original"
     }
 
     private var sleepTimerLabel: String {

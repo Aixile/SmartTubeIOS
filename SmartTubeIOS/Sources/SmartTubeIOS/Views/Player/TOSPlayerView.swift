@@ -270,13 +270,13 @@ public struct TOSPlayerView: View {
                     #endif
 
                     #if os(iOS)
-                    // MARK: Swipe-left/right navigation overlay (iOS only)
-                    // Mirrors PlayerSwipeGestureOverlay's left/right behaviour for the
-                    // AVPlayer pipeline. Restricted to the top portion of the screen so
-                    // YouTube's own bottom scrubber/control-bar drags are unaffected.
+                    // Right swipe returns; the bottom scrubber remains outside the gesture area.
                     TOSSwipeNavigationOverlay(
-                        onSwipeLeft: { vm.playNext() },
-                        onSwipeRight: { vm.playPrevious() },
+                        onReturn: {
+                            Task { @MainActor in
+                                returnToBrowse()
+                            }
+                        },
                         onTap: { _ in
                             // #111 history: we tried to undo YouTube's tap-to-pause so that
                             // tapping to reveal controls wouldn't also pause playback. But the
@@ -293,12 +293,6 @@ public struct TOSPlayerView: View {
                         },
                         onVerticalDragEnded: {
                             endVerticalDrag()
-                        },
-                        onEdgeSwipeExit: {
-                            // #328: distinct from the back button's minimize() — this
-                            // matches the mini-player's ✕ (tosState.stop()), fully
-                            // ending playback rather than continuing it in the background.
-                            tosState.stop()
                         }
                     )
                     .ignoresSafeArea()
@@ -494,9 +488,9 @@ public struct TOSPlayerView: View {
                 onFallback()
             }
             #if os(iOS)
-            // Show controls briefly whenever a new video loads via swipe navigation
+            // Show controls briefly whenever a different video loads
             // (tosState.vm is replaced by TOSPlayerStateStore.play). Without this the
-            // controls stay hidden if the user swiped while they were already hidden.
+            // controls stay hidden if navigation happened while they were already hidden.
             .onChange(of: vm.videoId) { _, _ in showControls() }
             // Keep landscape advertised to UIKit in sync with physical rotation, the
             // shared "Landscape Always Play" setting, and the lock button — mirrors
@@ -552,7 +546,7 @@ public struct TOSPlayerView: View {
             // visible gap before YouTube's own controls start.
             HStack(spacing: 4) {
                 Button {
-                    tosState.minimize()
+                    returnToBrowse()
                 } label: {
                     Image(systemName: AppSymbol.chevronLeft)
                         .font(.title2)
@@ -591,41 +585,36 @@ public struct TOSPlayerView: View {
             .padding(.top, 8)
             .padding(.leading, 16)
 
-            // Skip ±seconds + prev/next — a second row rather than crowding them into
-            // the row above (already at 4 items, see its own comment), and kept in the
-            // upper portion of the screen so it can never overlap YouTube's own bottom
-            // scrubber/controls (#140, #141). The underlying seek/navigation logic
-            // already existed (double-tap-seek via the standard player's seekRelative
-            // pattern, and playNext()/playPrevious() already backing the swipe gesture
-            // below) — these are just a discoverable, tappable equivalent.
-            HStack(spacing: 24) {
+            // Label video navigation separately from the seek-by-seconds buttons.
+            HStack(spacing: 12) {
                 secondaryControlButton(symbol: "gobackward.\(store.settings.seekBackSeconds)") {
                     vm.seekRelative(-Double(store.settings.seekBackSeconds))
                 }
                 .accessibilityIdentifier("tosPlayer.seekBackButton")
 
-                secondaryControlButton(symbol: "backward.end.fill", isEnabled: vm.hasPrevious) {
-                    vm.playPrevious()
-                }
-                .accessibilityIdentifier("tosPlayer.previousButton")
-
-                secondaryControlButton(symbol: "forward.end.fill", isEnabled: vm.hasNext) {
-                    vm.playNext()
-                }
-                .accessibilityIdentifier("tosPlayer.nextButton")
+                PlayerVideoNavigationButtons(
+                    hasPrevious: vm.hasPrevious,
+                    hasNext: vm.hasNext,
+                    previousIdentifier: AccessibilityID.Player.webPreviousVideo,
+                    nextIdentifier: AccessibilityID.Player.webNextVideo,
+                    onPrevious: { vm.playPrevious() }, onNext: { vm.playNext() }
+                )
 
                 secondaryControlButton(symbol: "goforward.\(store.settings.seekForwardSeconds)") {
                     vm.seekRelative(Double(store.settings.seekForwardSeconds))
                 }
                 .accessibilityIdentifier("tosPlayer.seekForwardButton")
 
-                Spacer()
             }
             .padding(.top, 12)
-            .padding(.leading, 16)
+            .padding(.horizontal, 16)
 
             Spacer()
         }
+    }
+
+    private func returnToBrowse() {
+        if store.settings.miniPlayerEnabled { tosState.minimize() } else { tosState.stop() }
     }
 
     private func secondaryControlButton(

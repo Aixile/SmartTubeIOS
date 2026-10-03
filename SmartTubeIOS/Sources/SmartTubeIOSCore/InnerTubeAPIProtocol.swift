@@ -10,7 +10,7 @@ import Foundation
 // A synchronous actor method satisfies an `async` protocol requirement in
 // Swift — the actor's isolation guarantees safe concurrent access.
 
-public protocol InnerTubeAPIProtocol: AnyObject, Sendable {
+public protocol InnerTubeAPIProtocol: AnyObject, Sendable, ChannelBrowsingAPI {
 
     // MARK: Auth
     func setAuthToken(_ token: String?) async
@@ -35,8 +35,6 @@ public protocol InnerTubeAPIProtocol: AnyObject, Sendable {
 
     // MARK: Channel
     func fetchChannelThumbnailURL(channelId: String) async throws -> URL?
-    func fetchChannel(channelId: String) async throws -> (channel: Channel, videos: VideoGroup)
-    func fetchChannelVideos(channelId: String, continuationToken: String?) async throws -> VideoGroup
 
     // MARK: Search
     func search(query: String, continuationToken: String?, filter: SearchFilter) async throws -> VideoGroup
