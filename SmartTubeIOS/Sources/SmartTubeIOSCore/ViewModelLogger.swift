@@ -4,9 +4,6 @@ import os
 // MARK: - ViewModelLogger
 //
 // Foundation-only logger for ViewModels that live in SmartTubeIOSCore.
-// Matches the CrashlyticsLogger interface so moved ViewModels need only
-// a type-name substitution.  In production the SmartTubeIOS layer wires
-// up Crashlytics separately via its own CrashlyticsLogger.
 
 struct ViewModelLogger: Sendable {
     private let logger: Logger

@@ -102,16 +102,11 @@ open SmartTube.xcworkspace
 
 ### Signing
 
-The project requires an Apple Developer Team ID and a Firebase `GoogleService-Info.plist` to build.  
-Copy `SmartTubeApp/Config/Secrets.xcconfig.example` to `SmartTubeApp/Config/Secrets.xcconfig` and fill in your Team ID:
+Select your Apple Developer team in Xcode's Signing & Capabilities for the app and its extensions, and use unique bundle identifiers. For a free Personal Team, use the local-only build without iCloud or App Groups entitlements.
 
-```
-DEVELOPMENT_TEAM = YOUR_TEAM_ID
-SMARTTUBE_TV_TEAM = YOUR_TEAM_ID
-```
+For configuration-based signing, copy `SmartTubeApp/Config/Secrets.xcconfig.example` to `SmartTubeApp/Config/Secrets.xcconfig` and set `SMARTTUBE_TEAM_ID` and `SMARTTUBE_TV_TEAM_ID`. Target-level team overrides in Xcode take precedence.
 
-Add your own `GoogleService-Info.plist` to both `SmartTubeApp/SmartTubeApp/` (iOS) and `SmartTubeApp/Smart Tube/` (tvOS) (create a free Firebase project at [console.firebase.google.com](https://console.firebase.google.com) — only Analytics and Crashlytics are used).  
-All of these files are gitignored (via glob rules matching any `GoogleService-Info.plist` or `Secrets.xcconfig`) and will never be committed; `setup.sh` installs them for you if you have access to the private config repo.
+Firebase is not included. No `GoogleService-Info.plist` or Firebase account is needed; diagnostics stay in the device's local system log.
 
 ---
 

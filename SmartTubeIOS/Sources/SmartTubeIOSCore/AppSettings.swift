@@ -60,10 +60,8 @@ public struct AppSettings: Codable {
     /// instead restyles the actual on-screen `UITabBar` instance directly. Takes effect
     /// immediately, no restart needed.
     public var disableLiquidGlass: Bool
-    /// #92: when `true`, AppEntry.swift's init() skips `FirebaseApp.configure()` entirely
-    /// so the SDK makes no network calls at launch (fixes a reported startup delay when
-    /// analytics domains are DNS-blocked). Read once at process launch like
-    /// `disableLiquidGlass` above — takes effect on the *next* launch, not live.
+    /// Legacy preference retained for decoding settings saved by earlier versions.
+    /// Telemetry is no longer included, regardless of this value.
     public var disableAnalytics: Bool
     /// #126: SHA256 hex digest of the Settings-screen parental-control PIN (see
     /// `SettingsPINHasher`). `nil` means no PIN is configured and Settings behaves as
@@ -260,7 +258,7 @@ public struct AppSettings: Codable {
         playbackSpeed = 1.0
         autoplayEnabled = true
         subtitlesLanguage = nil
-        backgroundPlaybackEnabled = false
+        backgroundPlaybackEnabled = true
         landscapeAlwaysPlay = false
         pipEnabled = true
         miniPlayerEnabled = true
@@ -431,10 +429,14 @@ extension AppSettings {
         accentColor = c.safeDecode(AccentColorChoice.self, forKey: .accentColor, default: d.accentColor)
         let columns = Self.availableGridColumnCounts
         gridColumnsPortrait = min(
-            max(c.safeDecode(Int.self, forKey: .gridColumnsPortrait, default: d.gridColumnsPortrait), columns.lowerBound),
+            max(
+                c.safeDecode(Int.self, forKey: .gridColumnsPortrait, default: d.gridColumnsPortrait), columns.lowerBound
+            ),
             columns.upperBound)
         gridColumnsLandscape = min(
-            max(c.safeDecode(Int.self, forKey: .gridColumnsLandscape, default: d.gridColumnsLandscape), columns.lowerBound),
+            max(
+                c.safeDecode(Int.self, forKey: .gridColumnsLandscape, default: d.gridColumnsLandscape),
+                columns.lowerBound),
             columns.upperBound)
         enabledSections = c.safeDecode(
             [BrowseSection.SectionType].self, forKey: .enabledSections, default: d.enabledSections)

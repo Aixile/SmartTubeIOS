@@ -7,7 +7,7 @@ import UIKit
 import MediaPlayer
 #endif
 
-private let playerLog = CrashlyticsLogger(category: "Player")
+private let playerLog = DiagnosticLogger(category: "Player")
 
 // MARK: - Load Video Lifecycle
 
@@ -36,7 +36,7 @@ extension PlaybackViewModel {
             playerLog.notice("[load] already loading \(video.id) — ignoring duplicate call")
             return
         }
-        CrashlyticsLogger.setVideoContext(id: video.id, title: video.title)
+        DiagnosticLogger.setVideoContext(id: video.id, title: video.title)
         // Cancel any previous in-flight load so we never have two concurrent API
         // fetches for the same (or different) video running at the same time.
         loadTask?.cancel()
@@ -156,6 +156,7 @@ extension PlaybackViewModel {
         isScrubbing = false
         chapters = []
         captionsManager.reset()
+        sponsorBlockManager.reset()
         audioManager.reset()
         endCards = []
 
@@ -164,6 +165,7 @@ extension PlaybackViewModel {
             history.append(prev)
         }
         currentVideo = video
+        lastDiagnosticProgressBucket = nil
         // fix236: Record the intended video at load() time so checkWrongVideoOnFirstPlay()
         // can detect if a stale task swaps currentVideo before readyToPlay fires.
         intendedVideoId = video.id
@@ -272,7 +274,7 @@ extension PlaybackViewModel {
     /// Call when the app enters the background.
     /// Pauses playback when the user has disabled background audio.
     public func handleBackground() {
-        guard !settings.backgroundPlaybackEnabled else { return }
+        guard !settings.backgroundPlaybackEnabled, !isPictureInPictureActive else { return }
         guard isPlaying else { return }
         player.pause()
         // isPlaying is synced to false by the rate KVO observer.
@@ -396,60 +398,6 @@ extension PlaybackViewModel {
             playerLog.error("[loadAsync] early setActive failed: \(error.localizedDescription)")
         }
         updateNowPlayingInfo()
-        #endif
-
-        // Fetch the BotGuard PO token before the primary stream attempt.
-        // Awaited (with a 2 s safety timeout) so api.hasPoToken(for:) returns true during
-        // the rqh=1 adaptive stream check in tryAllStreams — preventing an unnecessary
-        // WKWebView fallback on every cold start.
-        // BotGuardClient completes in <500 ms on first run; cached result returns in <1 ms
-        // thereafter (TTL ~12 h). The 2 s timeout is a safety net for slow networks only.
-        let capturedAPI = api
-        let capturedVideoId = video.id
-        if !(await api.hasPoToken(for: video.id)) {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await capturedAPI.prefetchPoToken(for: capturedVideoId) }
-                group.addTask { try? await Task.sleep(nanoseconds: 2_000_000_000) }
-                _ = await group.next()
-                group.cancelAll()
-            }
-        }
-        #if canImport(WebKit)
-        // Fire-and-forget: start WKWebView BotGuard pipeline in the background.
-        // Takes 3–8 s; by the time the primary attempt fails and exhaustiveRetry runs,
-        // it may be ready to provide a full getMinter-minted token (CDN-accepted for rqh=1).
-        // Zero impact on primary path timing — runs concurrently.
-        if !BotGuardWebViewRunner.shared.isReady {
-            let capturedVideoIdForWV = video.id
-            Task { @MainActor in
-                await BotGuardWebViewRunner.shared.prepare(for: capturedVideoIdForWV)
-            }
-        }
-        // Fire-and-forget: start WKWebView HLS extraction concurrently with the primary path.
-        // For rqh=1 videos the ~2 s extraction overlaps the primary iOS attempt so the URL
-        // is ready (or nearly ready) by the time exhaustiveRetry reaches Phase -2, saving
-        // the serial 2–4 s wait. For non-rqh=1 videos the task completes silently unused.
-        // Use priorityExtract() (not serialExtract) so earlyTask starts wv.load() IMMEDIATELY
-        // without waiting for any in-flight VideoCardView second-serialExtract. A background
-        // card extraction (e.g. POTUARPb1CU) may have captured pendingSerialTask just before
-        // the tap; chaining onto it (serialExtract's behaviour) delays wv.load() by ~2.3 s,
-        // making CDN trust too stale (~0.5 s) for AndroidVR loadTracks (R12 regression).
-        // priorityExtract registers itself in pendingSerialTask so race-failed handlers still
-        // chain onto it correctly via serialExtract.
-        let capturedVideoIdForHLS = video.id
-        // Reuse an in-flight pre-warm started by stop() for the same video (fix10).
-        // If stop() already started serialExtract for this videoId, wkHLSEarlyTask is
-        // non-nil and for the same video — just let it run; racePathB awaits its value.
-        if wkHLSEarlyTask == nil {
-            wkHLSEarlyTaskVideoId = capturedVideoIdForHLS
-            wkHLSEarlyTask = Task { @MainActor in
-                // priorityExtract bypasses pendingSerialTask chaining → wv.load() starts
-                // immediately at tap time. For pfa/1 rqh=1 videos like _DY9cTWakcM, this
-                // refreshes CDN IP-level trust so it is only ~2.5 s old when AndroidVR
-                // loadTracks runs — within the ~2.5 s trust window.
-                return await YouTubeWebViewHLSExtractor.shared.priorityExtract(videoId: capturedVideoIdForHLS)
-            }
-        }
         #endif
 
         // Local-file fast path — bypass all network fetches for downloaded videos.
@@ -580,6 +528,65 @@ extension PlaybackViewModel {
             // File missing or path invalid — fall through to network re-stream.
             playerLog.notice("[loadAsync] localFileURL set but file not accessible, falling through: \(localURL.path)")
         }
+
+        #if os(iOS)
+        if await tryPreferredNativeStream(video: video) { return }
+        guard !Task.isCancelled, currentVideoId == video.id else { return }
+        #endif
+
+        // Fetch the BotGuard PO token before the primary stream attempt.
+        // Awaited (with a 2 s safety timeout) so api.hasPoToken(for:) returns true during
+        // the rqh=1 adaptive stream check in tryAllStreams — preventing an unnecessary
+        // WKWebView fallback on every cold start.
+        // BotGuardClient completes in <500 ms on first run; cached result returns in <1 ms
+        // thereafter (TTL ~12 h). The 2 s timeout is a safety net for slow networks only.
+        let capturedAPI = api
+        let capturedVideoId = video.id
+        if !(await api.hasPoToken(for: video.id)) {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await capturedAPI.prefetchPoToken(for: capturedVideoId) }
+                group.addTask { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+                _ = await group.next()
+                group.cancelAll()
+            }
+        }
+        #if canImport(WebKit)
+        // Fire-and-forget: start WKWebView BotGuard pipeline in the background.
+        // Takes 3–8 s; by the time the primary attempt fails and exhaustiveRetry runs,
+        // it may be ready to provide a full getMinter-minted token (CDN-accepted for rqh=1).
+        // Zero impact on primary path timing — runs concurrently.
+        if !BotGuardWebViewRunner.shared.isReady {
+            let capturedVideoIdForWV = video.id
+            Task { @MainActor in
+                await BotGuardWebViewRunner.shared.prepare(for: capturedVideoIdForWV)
+            }
+        }
+        // Fire-and-forget: start WKWebView HLS extraction concurrently with the primary path.
+        // For rqh=1 videos the ~2 s extraction overlaps the primary iOS attempt so the URL
+        // is ready (or nearly ready) by the time exhaustiveRetry reaches Phase -2, saving
+        // the serial 2–4 s wait. For non-rqh=1 videos the task completes silently unused.
+        // Use priorityExtract() (not serialExtract) so earlyTask starts wv.load() IMMEDIATELY
+        // without waiting for any in-flight VideoCardView second-serialExtract. A background
+        // card extraction (e.g. POTUARPb1CU) may have captured pendingSerialTask just before
+        // the tap; chaining onto it (serialExtract's behaviour) delays wv.load() by ~2.3 s,
+        // making CDN trust too stale (~0.5 s) for AndroidVR loadTracks (R12 regression).
+        // priorityExtract registers itself in pendingSerialTask so race-failed handlers still
+        // chain onto it correctly via serialExtract.
+        let capturedVideoIdForHLS = video.id
+        // Reuse an in-flight pre-warm started by stop() for the same video (fix10).
+        // If stop() already started serialExtract for this videoId, wkHLSEarlyTask is
+        // non-nil and for the same video — just let it run; racePathB awaits its value.
+        if wkHLSEarlyTask == nil {
+            wkHLSEarlyTaskVideoId = capturedVideoIdForHLS
+            wkHLSEarlyTask = Task { @MainActor in
+                // priorityExtract bypasses pendingSerialTask chaining → wv.load() starts
+                // immediately at tap time. For pfa/1 rqh=1 videos like _DY9cTWakcM, this
+                // refreshes CDN IP-level trust so it is only ~2.5 s old when AndroidVR
+                // loadTracks runs — within the ~2.5 s trust window.
+                return await YouTubeWebViewHLSExtractor.shared.priorityExtract(videoId: capturedVideoIdForHLS)
+            }
+        }
+        #endif
 
         do {
             // --- Cache-first load ---
@@ -898,7 +905,7 @@ extension PlaybackViewModel {
                             self.lastSuccessfulStreamType = isHLS ? "primaryHLS" : "primaryDirect"
                         }
                         if elapsedMs > 4_000 {
-                            CrashlyticsLogger.recordSlowVideoLoad(
+                            DiagnosticLogger.recordSlowVideoLoad(
                                 videoId: self.currentVideo?.id ?? "unknown",
                                 elapsedMs: elapsedMs,
                                 streamType: self.lastSuccessfulStreamType,

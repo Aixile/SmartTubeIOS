@@ -6,7 +6,7 @@ import os
 import MediaPlayer
 #endif
 
-private let playerLog = CrashlyticsLogger(category: "Player")
+private let playerLog = DiagnosticLogger(category: "Player")
 
 // MARK: - Transport Controls & Scrubbing
 

@@ -384,6 +384,9 @@ public struct TOSPlayerView: View {
                 Task { @MainActor in
                     await vm.prepareAuthentication(token: accessToken, sapisid: sapisid)
                     vm.startIfNeeded()
+                    #if os(macOS)
+                    vm.startIfNeededWhenWindowReady()
+                    #endif
                 }
                 // The IFrame load is deferred to YouTubeWebPlayerView's window-ready
                 // callback (see UIViewRepresentable Coordinator in this file), which
@@ -978,6 +981,7 @@ public struct TOSPlayerView: View {
 #if os(macOS)
 private struct YouTubeWebPlayerView: NSViewRepresentable {
     let webView: WKWebView
+    let onWindowReady: (() -> Void)?
 
     func makeNSView(context: Context) -> WKWebView {
         webView.autoresizingMask = [.width, .height]

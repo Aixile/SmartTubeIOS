@@ -340,7 +340,13 @@ extension TOSPlayerViewModel {
                 )
                 return
             }
-            guard let image = image, let data = image.pngData() else {
+            #if os(macOS)
+            let pngData = image?.tiffRepresentation
+                .flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
+            #else
+            let pngData = image?.pngData()
+            #endif
+            guard let data = pngData else {
                 tosLog.error("[snapshot] no image/PNG data returned")
                 completion?(false)
                 CFNotificationCenterPostNotification(

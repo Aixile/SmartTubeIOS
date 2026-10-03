@@ -1,5 +1,3 @@
-import FirebaseCore
-import FirebaseCrashlytics
 import SmartTubeIOS
 import SmartTubeIOSCore
 import SwiftUI
@@ -12,9 +10,6 @@ struct AppEntry: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     #endif
 
-    // Declared without default values so that init() can call FirebaseApp.configure()
-    // before any of these objects are instantiated. @State default values are evaluated
-    // before init() runs, which would trigger Firebase before it is configured.
     @State private var api: InnerTubeAPI
     @State private var authService: AuthService
     @State private var browseViewModel: BrowseViewModel
@@ -47,18 +42,7 @@ struct AppEntry: App {
     private static let pendingRSSFeedKey = "pendingRSSFeedURL"
 
     init() {
-        // #92: read the setting before configuring Firebase (and before constructing
-        // anything below that might log through CrashlyticsLogger) so that when
-        // analytics are disabled, FirebaseApp.configure() is never called at all —
-        // no network calls at startup, fixing the delay some users saw when analytics
-        // domains are DNS-blocked. CrashlyticsLogger.isEnabled must be set first so its
-        // methods know to skip Crashlytics.crashlytics() instead of hitting the fatal
-        // "default app not configured" error.
         let settingsStore = SettingsStore()
-        CrashlyticsLogger.isEnabled = !settingsStore.settings.disableAnalytics
-        if CrashlyticsLogger.isEnabled {
-            FirebaseApp.configure()
-        }
         let poTokenProvider: (any PoTokenProvider)? = {
             if let url = settingsStore.settings.poTokenServiceURL {
                 return ServerPoTokenProvider(serviceURL: url)
@@ -282,7 +266,8 @@ struct AppEntry: App {
                             #endif
                         } else if phase == .background {
                             #if os(iOS)
-                            if playerStateStore.presentation == .miniPlayer {
+                            if playerStateStore.presentation != .hidden {
+                                playerStateStore.vm.updateSettings(settingsStore.settings)
                                 playerStateStore.vm.handleBackground()
                             }
                             #endif

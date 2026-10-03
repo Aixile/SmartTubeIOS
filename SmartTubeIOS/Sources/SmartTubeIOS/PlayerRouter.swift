@@ -14,11 +14,8 @@ import SmartTubeIOSCore
 // place instead of duplicated across every view.
 //
 // Routing rules:
-//   - If `settingsStore.useTOSPlayerOnIOS` is true (the default — always on except
-//     for UI tests that opt out) and this video hasn't previously hit a fatal embed
-//     error (TOSPlayerStateStore.fallbackVideoId), present the WKWebView-based
-//     TOS-compliant player.
-//   - Otherwise present the AVPlayer-based pipeline.
+//   - Use the native player by default, with VisionOS HLS as the first source.
+//   - Tests can select the embedded player unless it hit a fatal embed error.
 // In both cases, any active mini-player for the *other* pipeline is stopped
 // first — AVPlayer and TOS playback are mutually exclusive.
 @MainActor
@@ -36,7 +33,7 @@ public final class PlayerRouter {
 
     /// Open `video` in whichever player pipeline is currently preferred.
     /// `incognito` (#94) skips recording this video to watch history / resume
-    /// position — currently only honored by the TOS pipeline (the iOS default);
+    /// position — currently only honored by the TOS pipeline;
     /// the legacy AVPlayer pipeline's history recording isn't wired to it yet.
     public func open(video: Video, api: InnerTubeAPI, incognito: Bool = false) {
         if settingsStore.useTOSPlayerOnIOS && tosState.fallbackVideoId != video.id {
@@ -45,6 +42,7 @@ public final class PlayerRouter {
             return
         }
         if tosState.presentation != .hidden { tosState.stop() }
+        playerState.vm.updateSettings(settingsStore.settings)
         playerState.play(video: video)
     }
 }

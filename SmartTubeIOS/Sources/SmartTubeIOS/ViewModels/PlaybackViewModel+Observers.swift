@@ -6,7 +6,7 @@ import os
 import MediaPlayer
 #endif
 
-private let playerLog = CrashlyticsLogger(category: "Player")
+private let playerLog = DiagnosticLogger(category: "Player")
 
 // MARK: - AVPlayer Observers
 
@@ -30,6 +30,15 @@ extension PlaybackViewModel {
                 // or a stale value. currentTime is restored by qualityItemDidBecomeReady.
                 guard !self.isQualityChangePending else { return }
                 self.currentTime = seconds
+                if self.logsPlaybackProgress, seconds.isFinite {
+                    let bucket = Int(seconds / PlaybackTuning.diagnosticProgressInterval)
+                    if self.lastDiagnosticProgressBucket != bucket {
+                        self.lastDiagnosticProgressBucket = bucket
+                        playerLog.notice(
+                            "[playback-progress] video=\(self.currentVideoId ?? "none") time=\(seconds) rate=\(self.player.rate) status=\(self.player.timeControlStatus.rawValue) loading=\(self.isLoading) source=\(self.lastSuccessfulStreamType)"
+                        )
+                    }
+                }
                 self.checkSponsorSkip(at: seconds)
                 self.updateCaptionCue(for: seconds)
                 if self.statsForNerdsVisible { self.updateStatsSnapshot() }

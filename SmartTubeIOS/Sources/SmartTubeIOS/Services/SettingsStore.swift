@@ -25,16 +25,13 @@ public final class SettingsStore {
         }
     }
 
-    /// Whether the YouTube IFrame-based TOS-compliant player is used instead of the
-    /// AVPlayer-based pipeline on iOS. Always `true` — there is no user-facing
-    /// setting for this and it is never persisted. Existing iOS UI tests that
-    /// exercise the AVPlayer-based pipeline (quality picker, captions, SponsorBlock,
-    /// mini player, PIP, DASH switching, etc.) opt out via
-    /// `--uitesting-disable-tos-player-on-ios`. Has no effect on macOS or tvOS —
-    /// PlayerRouter (the only reader) is `#if os(iOS)`.
-    public var useTOSPlayerOnIOS: Bool = true
+    /// Test override for the embedded player. Normal iOS playback uses AVPlayer.
+    /// This is never persisted; embedded-player suites opt in with
+    /// `--uitesting-enable-tos-player-on-ios`. Has no effect on macOS or tvOS.
+    public var useTOSPlayerOnIOS: Bool = false
 
     private static let key = "smarttube_app_settings"
+    private static let backgroundAudioMigrationKey = "smarttube_background_audio_default_v1"
 
     public init() {
         if let data = UserDefaults.standard.data(forKey: Self.key),
@@ -44,6 +41,15 @@ public final class SettingsStore {
         } else {
             self.settings = AppSettings()
         }
+        #if os(iOS)
+        // Enable lock-screen listening for existing installations once. Subsequent
+        // launches preserve the user's choice if they turn it off in Settings.
+        if !UserDefaults.standard.bool(forKey: Self.backgroundAudioMigrationKey) {
+            self.settings.backgroundPlaybackEnabled = true
+            save()
+            UserDefaults.standard.set(true, forKey: Self.backgroundAudioMigrationKey)
+        }
+        #endif
         // Reset settings to defaults when launched for UI testing so each test
         // suite starts from a clean, known state and prior runs cannot bleed in.
         if ProcessInfo.processInfo.arguments.contains("--uitesting-reset-settings") {
@@ -61,9 +67,7 @@ public final class SettingsStore {
         if ProcessInfo.processInfo.arguments.contains("--uitesting-enable-tos-player-on-ios") {
             self.useTOSPlayerOnIOS = true
         }
-        // useTOSPlayerOnIOS is true by default on iOS, so suites that exercise the
-        // AVPlayer-based pipeline (quality picker, captions, SponsorBlock, mini player,
-        // PIP, DASH switching, etc.) opt back into it with this flag.
+        // Retained for existing suites that explicitly select the native player.
         if ProcessInfo.processInfo.arguments.contains("--uitesting-disable-tos-player-on-ios") {
             self.useTOSPlayerOnIOS = false
         }

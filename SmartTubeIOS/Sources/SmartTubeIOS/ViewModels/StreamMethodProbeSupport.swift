@@ -14,6 +14,17 @@ import Foundation
 /// isolation.  It is written once at app launch and then only read.
 public enum StreamMethodProbeSupport {
 
+    /// Reproducible device probes can start just before a real SponsorBlock segment.
+    static var playbackStartTime: Double? {
+        let arguments = ProcessInfo.processInfo.arguments
+        let prefix = "--uitesting-playback-start="
+        guard arguments.contains("--uitesting"),
+            let argument = arguments.first(where: { $0.hasPrefix(prefix) }),
+            let seconds = Double(argument.dropFirst(prefix.count)), seconds.isFinite, seconds >= 0
+        else { return nil }
+        return seconds
+    }
+
     // nonisolated(unsafe): written synchronously on the main thread during app init
     // before any concurrent code runs; after that it is read-only.
     nonisolated(unsafe) public static var forcedStreamMethod: String? = nil

@@ -8,7 +8,7 @@ import os
 import UIKit
 #endif
 
-private let swipeLog = CrashlyticsLogger(category: "Player")
+private let swipeLog = DiagnosticLogger(category: "Player")
 
 // MARK: - PlayerView Lifecycle
 extension PlayerView {
@@ -298,7 +298,7 @@ extension PlayerView {
                                 channelTitle: "",
                                 thumbnailURL: card.thumbnailURL
                             )
-                            CrashlyticsLogger.setIntendedVideo(id: videoId, title: card.title)
+                            DiagnosticLogger.setIntendedVideo(id: videoId, title: card.title)
                             vm.load(video: video)
                         }
                     )
@@ -774,7 +774,7 @@ extension PlayerView {
         // playing — AVPlayer must have a ready item for isPictureInPicturePossible
         // to ever become true. Creating it at view-appear time (before any item
         // is loaded) means it stays permanently inert.
-        .onChange(of: vm.isPlaying) { _, playing in
+        .onChange(of: vm.isPlaying, initial: true) { _, playing in
             let pipUITestingOverride = ProcessInfo.processInfo.arguments.contains("--uitesting-enable-pip")
             guard playing, pipController == nil,
                 playerLayer.player != nil,
@@ -784,20 +784,19 @@ extension PlayerView {
             let pip = AVPictureInPictureController(playerLayer: playerLayer)
             pip?.canStartPictureInPictureAutomaticallyFromInline = true
             let delegate = PiPDelegate(
-                onActiveChange: { active in isPiPActive = active },
+                onActiveChange: { active in
+                    isPiPActive = active
+                    vm.isPictureInPictureActive = active
+                    if !active && isInBackground { vm.handleBackground() }
+                },
                 onDidStart: { vm.updateNowPlayingInfo() }
             )
             pip?.delegate = delegate
             pipDelegate = delegate
             pipController = pip
         }
-        // When PiP ends (user returns to app), release the stale controller so the
-        // next background exit creates a fresh one attached to the current playerLayer.
-        .onChange(of: isPiPActive) { wasActive, isActive in
-            guard wasActive, !isActive else { return }
-            pipController = nil
-            pipDelegate = nil
-        }
+        // Keep the controller after PiP stops: playback may remain active, so there
+        // may be no new isPlaying change to recreate it before the next PiP request.
         // Update isLandscape when the device physically rotates.
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             let orientation = UIDevice.current.orientation

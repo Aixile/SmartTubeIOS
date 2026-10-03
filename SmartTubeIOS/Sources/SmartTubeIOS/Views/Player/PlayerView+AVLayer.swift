@@ -110,6 +110,17 @@ final class PiPDelegate: NSObject, AVPictureInPictureControllerDelegate {
         self.onDidStart = onDidStart
     }
 
+    func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        onActiveChange(true)
+    }
+
+    func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        onActiveChange(false)
+    }
+
     func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
         onDidStart?()
         onActiveChange(true)

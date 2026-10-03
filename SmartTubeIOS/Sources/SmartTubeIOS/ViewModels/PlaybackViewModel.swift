@@ -9,7 +9,7 @@ import UIKit
 import MediaPlayer
 #endif
 
-private let playerLog = CrashlyticsLogger(category: "Player")
+private let playerLog = DiagnosticLogger(category: "Player")
 
 // MARK: - PlaybackViewModel
 //
@@ -173,7 +173,7 @@ public final class PlaybackViewModel {
                     "retry_attempts": "\(retryAttempts)",
                     "current_time": "\(Int(currentTime))s",
                 ])
-            CrashlyticsLogger.sendAutoPlaybackDiagnostic()
+            DiagnosticLogger.sendAutoPlaybackDiagnostic()
         }
     }
     public var controlsVisible: Bool = false
@@ -212,6 +212,9 @@ public final class PlaybackViewModel {
     public internal(set) var wasPlayingBeforeSuspend: Bool = false
     /// Position tracked during a scrub drag; committed to AVPlayer on release.
     public internal(set) var scrubTime: TimeInterval = 0
+    @ObservationIgnored var lastDiagnosticProgressBucket: Int?
+    @ObservationIgnored let logsPlaybackProgress = ProcessInfo.processInfo.arguments.contains(
+        "--uitesting-playback-progress")
 
     /// The chapter whose start time is closest-but-not-greater-than `currentTime`.
     /// Nil when no chapters are available or the video hasn't started.
@@ -430,7 +433,12 @@ public final class PlaybackViewModel {
     let api: InnerTubeAPI
     let sponsorBlock: SponsorBlockService
     let deArrow: DeArrowService
-    public var settings: AppSettings
+    /// Includes the transition into PiP, so background handling cannot pause it.
+    public var isPictureInPictureActive = false
+
+    public var settings: AppSettings {
+        didSet { updateBackgroundPlaybackPolicy() }
+    }
     var hasAuthToken: Bool = false
     var currentAuthToken: String? = nil
 
@@ -461,6 +469,7 @@ public final class PlaybackViewModel {
         )
         self.comments = CommentsController(api: api)
 
+        updateBackgroundPlaybackPolicy()
         player.allowsExternalPlayback = true
         #if canImport(UIKit)
         do {
@@ -519,6 +528,11 @@ public final class PlaybackViewModel {
     /// can detect spurious onAppear/onDisappear cycles (e.g. when a ShareLink sheet
     /// temporarily covers the player) and skip unnecessary reloads.
     public var currentVideoId: String? { currentVideo?.id }
+
+    private func updateBackgroundPlaybackPolicy() {
+        player.audiovisualBackgroundPlaybackPolicy =
+            settings.backgroundPlaybackEnabled ? .continuesIfPossible : (settings.pipEnabled ? .automatic : .pauses)
+    }
 
     public func updateSettings(_ newSettings: AppSettings) {
         settings = newSettings
@@ -605,7 +619,7 @@ extension PlaybackViewModel: QualityEventHandler {
             active.id != intended
         else { return }
         playerLog.error("[WrongVideo] MISMATCH at readyToPlay — intended=\(intended) active=\(active.id)")
-        CrashlyticsLogger.sendWrongVideoReport(
+        DiagnosticLogger.sendWrongVideoReport(
             intendedId: intended,
             intendedTitle: intendedVideoTitle ?? intended,
             activeId: active.id,

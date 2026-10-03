@@ -11,7 +11,6 @@ public struct SettingsView: View {
     @Environment(AuthService.self) private var auth
     @Environment(SettingsStore.self) private var store
     @State private var showSignIn = false
-    @State private var reportSent = false
     #if os(tvOS)
     @State private var showGithubQR = false
     #endif
@@ -212,7 +211,17 @@ public struct SettingsView: View {
             Toggle("Shuffle", isOn: $store.settings.shuffleEnabled)
 
             Toggle("Autoplay next video", isOn: $store.settings.autoplayEnabled)
+            #if os(iOS)
+            Toggle("Picture in Picture", isOn: $store.settings.pipEnabled)
+            #endif
             Toggle("Background Playback", isOn: $store.settings.backgroundPlaybackEnabled)
+            #if os(iOS)
+            Text(
+                "Picture in Picture shows a floating video over other apps. Background Playback keeps audio playing when the screen is locked."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            #endif
             #if !os(iOS)
             Toggle("Prefer H.264 Codec", isOn: $store.settings.preferH264)
                 .accessibilityIdentifier("settings.preferH264Toggle")
@@ -430,14 +439,8 @@ public struct SettingsView: View {
     // MARK: - About
 
     private var aboutSection: some View {
-        @Bindable var store = store
-        return Section {
+        Section {
             LabeledContent("Version", value: appVersion)
-            Toggle("Disable Analytics & Crash Reporting", isOn: $store.settings.disableAnalytics)
-                .accessibilityIdentifier("settings.disableAnalyticsToggle")
-            Text("Restart the app for this to take effect.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             #if os(tvOS)
             Button {
                 showGithubQR = true
@@ -449,19 +452,6 @@ public struct SettingsView: View {
                 Label("View on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
             }
             #endif
-            Button {
-                CrashlyticsLogger.sendDiagnosticReport()
-                reportSent = true
-            } label: {
-                if reportSent {
-                    Label("Report Sent", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    Label("Send Diagnostic Report", systemImage: "ladybug")
-                }
-            }
-            .disabled(reportSent || store.settings.disableAnalytics)
-            .accessibilityIdentifier("settings.sendDiagnosticReportButton")
             Button("Reset All Settings", role: .destructive) { store.reset() }
                 .accessibilityIdentifier("settings.resetAllButton")
         } header: {
