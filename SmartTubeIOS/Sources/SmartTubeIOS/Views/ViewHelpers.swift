@@ -149,6 +149,7 @@ enum AppSymbol {
     static let play = "play.fill"
     static let pause = "pause.fill"
     static let expandVideo = "arrow.up.left.and.arrow.down.right"
+    static let rotateOrientation = "rotate.right"
     static let previousTrack = "backward.end.fill"
     static let nextTrack = "forward.end.fill"
     static let previousChapter = "backward.end.alt.fill"

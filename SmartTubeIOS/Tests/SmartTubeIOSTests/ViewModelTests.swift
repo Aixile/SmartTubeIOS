@@ -24,6 +24,8 @@ final class MockInnerTubeAPI: InnerTubeAPIProtocol {
 
     var homeResult: VideoGroup = VideoGroup(title: "Home", videos: [])
     var homeRowsResult: [VideoGroup] = []
+    var homeRowsHandler: (@MainActor (String?) async throws -> [VideoGroup])?
+    var subscriptionsHandler: (@MainActor (String?) async throws -> VideoGroup)?
     var subscriptionsResult: VideoGroup = VideoGroup(title: "Subs", videos: [])
     var historyResult: VideoGroup = VideoGroup(title: "History", videos: [])
     var shortsResult: VideoGroup = VideoGroup(title: "Shorts", videos: [])
@@ -68,12 +70,14 @@ final class MockInnerTubeAPI: InnerTubeAPIProtocol {
     func fetchHomeRows(continuationToken: String?) async throws -> [VideoGroup] {
         calls.append(Call(method: "fetchHomeRows", args: [continuationToken ?? "nil"]))
         if let e = errorToThrow { throw e }
+        if let homeRowsHandler { return try await homeRowsHandler(continuationToken) }
         return homeRowsResult
     }
 
     func fetchSubscriptions(continuationToken: String?) async throws -> VideoGroup {
         calls.append(Call(method: "fetchSubscriptions", args: [continuationToken ?? "nil"]))
         if let e = errorToThrow { throw e }
+        if let subscriptionsHandler { return try await subscriptionsHandler(continuationToken) }
         return subscriptionsResult
     }
 

@@ -27,7 +27,8 @@ struct HomeFilteredFeed: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
-                    ForEach(store.settings.homeVideoFilter.groups(in: matches)) { group in
+                    let groups = store.settings.homeVideoFilter.groups(in: matches)
+                    ForEach(groups) { group in
                         if let title = group.title {
                             HStack {
                                 Text(title).font(.headline)
@@ -36,7 +37,12 @@ struct HomeFilteredFeed: View {
                             }
                             .padding(.horizontal)
                         }
-                        VideoGridSection(videos: group.videos, onSelect: { onSelect($0, group.videos) })
+                        VideoGridSection(
+                            videos: group.videos, onSelect: { onSelect($0, group.videos) },
+                            loadMore: group.id == groups.last?.id
+                                ? {
+                                    if hasMore, !isLoading, errorMessage == nil { loadMore() }
+                                } : nil)
                     }
                 } else if !isLoading {
                     ContentUnavailableView(

@@ -132,6 +132,51 @@ struct VideoRendererPublishAgeTests {
 @Suite("Task #97 — parseLockupViewModel publishedAt extraction")
 struct LockupViewModelPublishAgeTests {
 
+    @Test("Channel cards retain upload age in the first or only metadata row", arguments: [false, true])
+    func channelCardFirstRow(continuation: Bool) async throws {
+        let rows: [[String: Any]] = [
+            [
+                "metadataParts": [
+                    ["text": ["content": "1.2M views"]],
+                    ["text": ["content": "2 years ago"]],
+                ]
+            ]
+        ]
+        let item: [String: Any] = ["lockupViewModel": makeLockup(metadataRows: rows)]
+        let response: [String: Any] =
+            continuation
+            ? ["onResponseReceivedActions": [["appendContinuationItemsAction": ["continuationItems": [item]]]]]
+            : makeLockupViewModelAgeResponse(makeLockup(metadataRows: rows))
+        let api = InnerTubeAPI()
+        let group = try await api.parseVideoGroupForTesting(response, title: nil)
+        let video = try #require(group.videos.first)
+        #expect(video.publishedAt != nil)
+        #expect(video.publishedTimeText == "2 years ago")
+        #expect(video.publicationLabel == "2 years ago")
+    }
+
+    @Test("Channel tiles retain dates from their only metadata line", arguments: [false, true])
+    func channelTileFirstLine(contentText: Bool) async throws {
+        let text: [String: Any] =
+            contentText
+            ? ["content": "3 days ago"] : ["runs": [["text": "3 days ago"]]]
+        let tile: [String: Any] = [
+            "contentType": "TILE_CONTENT_TYPE_VIDEO",
+            "onSelectCommand": ["watchEndpoint": ["videoId": "channelTile"]],
+            "metadata": [
+                "tileMetadataRenderer": [
+                    "title": ["simpleText": "Channel upload"],
+                    "lines": [["lineRenderer": ["items": [["lineItemRenderer": ["text": text]]]]]],
+                ]
+            ],
+        ]
+        let api = InnerTubeAPI()
+        let group = try await api.parseVideoGroupForTesting(["items": [["tileRenderer": tile]]], title: nil)
+        let video = try #require(group.videos.first)
+        #expect(video.publishedAt != nil)
+        #expect(video.publicationLabel == "3 days ago")
+    }
+
     /// Builds a minimal valid lockupViewModel with configurable metadataRows.
     private func makeLockup(metadataRows: [[String: Any]]) -> [String: Any] {
         [

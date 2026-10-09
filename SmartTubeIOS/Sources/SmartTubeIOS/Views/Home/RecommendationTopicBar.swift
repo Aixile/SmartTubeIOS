@@ -83,16 +83,27 @@ struct TopicRecommendationsView: View {
                 let shorts = videos.filter(\.isShort)
                 let regular = videos.filter { !$0.isShort }
                 if !shorts.isEmpty {
-                    ShortsRowSection(videos: shorts, onSelect: { onSelect($0, shorts) }, loadMore: { model.loadMore() })
+                    ShortsRowSection(
+                        videos: shorts, onSelect: { onSelect($0, shorts) },
+                        loadMore: { if model.errorMessage == nil { model.loadMore() } })
                 }
-                VideoGridSection(videos: regular, onSelect: { onSelect($0, regular) }, loadMore: { model.loadMore() })
+                VideoGridSection(
+                    videos: regular, onSelect: { onSelect($0, regular) },
+                    loadMore: { if model.errorMessage == nil { model.loadMore() } })
                 if model.isLoading {
                     ProgressView().padding()
                 } else if let error = model.errorMessage {
                     Text(error).foregroundStyle(.secondary)
                     Button("Try again") { model.retry() }
-                } else if videos.isEmpty {
-                    ContentUnavailableView("No videos for this topic", systemImage: AppSymbol.tvMediabox)
+                } else {
+                    if videos.isEmpty {
+                        ContentUnavailableView("No videos for this topic", systemImage: AppSymbol.tvMediabox)
+                    }
+                    if model.nextPageToken != nil {
+                        Button("Load more videos") { model.loadMore() }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier(AccessibilityID.Home.topicLoadMore)
+                    }
                 }
             }
         }

@@ -437,7 +437,7 @@ public struct VideoCardView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 VideoMembershipBadge(video: video)
-                Text(displayTitle)
+                VideoTitleText(video: video)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2, reservesSpace: true)
                     .accessibilityIdentifier("video.card.title")
@@ -487,7 +487,7 @@ public struct VideoCardView: View {
                 }
             VStack(alignment: .leading, spacing: 3) {
                 VideoMembershipBadge(video: video)
-                Text(displayTitle)
+                VideoTitleText(video: video)
                     .font(.subheadline)
                     .lineLimit(2)
                     .accessibilityIdentifier("video.card.title")
@@ -541,12 +541,6 @@ public struct VideoCardView: View {
             let ts = video.deArrowThumbnailTimestamp
         else { return nil }
         return URL(string: "https://i.ytimg.com/vi/\(video.id)/\(Int(ts)).jpg")
-    }
-
-    /// The title to show — community de-arrow title when enabled, raw title otherwise.
-    private var displayTitle: String {
-        if store.settings.deArrowEnabled, let t = video.deArrowTitle { return t }
-        return video.title
     }
 
     @ViewBuilder

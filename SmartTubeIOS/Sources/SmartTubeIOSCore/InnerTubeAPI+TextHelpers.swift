@@ -9,6 +9,7 @@ extension InnerTubeAPI {
 
     func extractText(_ dict: [String: Any]) -> String? {
         if let simple = dict["simpleText"] as? String { return simple }
+        if let content = dict["content"] as? String { return content }
         if let runs = dict["runs"] as? [[String: Any]] {
             return runs.compactMap { $0["text"] as? String }.joined()
         }

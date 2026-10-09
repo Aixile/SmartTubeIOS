@@ -27,6 +27,7 @@ struct PlayerControlsOverlay: View {
     @Binding var pipController: AVPictureInPictureController?
     @Binding var isPiPActive: Bool
     @Binding var isLandscapeLocked: Bool
+    let onToggleOrientation: () -> Void
     @Environment(PlayerStateStore.self) private var playerState
     var vm: PlaybackViewModel { playerState.vm }
     #else
@@ -80,7 +81,7 @@ struct PlayerControlsOverlay: View {
                 .accessibilityIdentifier("player.backButton")
                 #endif
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(currentVideo.title)
+                    VideoTitleText(video: currentVideo)
                         .font(.headline)
                         .foregroundStyle(.white)
                         .lineLimit(size.width > size.height ? 1 : 2)
@@ -341,6 +342,22 @@ struct PlayerControlsOverlay: View {
                     }
 
                     #if os(iOS)
+                    Button(action: onToggleOrientation) {
+                        Image(systemName: AppSymbol.rotateOrientation)
+                            .font(.system(size: 18 * controlScale))
+                            .foregroundStyle(.white)
+                            .frame(minWidth: BrowseHeaderLayout.controlSize, minHeight: BrowseHeaderLayout.controlSize)
+                            .background(.black.opacity(0.4))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.Player.rotateOrientation)
+                    .accessibilityLabel(
+                        vm.isLandscape
+                            ? Text("Switch to portrait", bundle: .module)
+                            : Text("Switch to landscape", bundle: .module)
+                    )
+
                     // Landscape lock button
                     Button {
                         isLandscapeLocked.toggle()

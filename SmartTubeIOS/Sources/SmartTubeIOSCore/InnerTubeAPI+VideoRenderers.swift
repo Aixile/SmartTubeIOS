@@ -113,6 +113,13 @@ extension InnerTubeAPI {
                     }
                     return
                 }
+                // TV feed containers use continuation data instead of a continuation item.
+                if let continuations = dict["continuations"] as? [[String: Any]],
+                    let data = continuations.first?["nextContinuationData"] as? [String: Any],
+                    let token = data["continuation"] as? String
+                {
+                    continuationToken = token
+                }
                 if let contItem = dict["continuationItemRenderer"] as? [String: Any],
                     let contEndpoint = contItem["continuationEndpoint"] as? [String: Any],
                     let contCmd = contEndpoint["continuationCommand"] as? [String: Any],
@@ -614,12 +621,12 @@ extension InnerTubeAPI {
             "tileRenderer id=\(videoId, privacy: .public) tileStyle=\(tile["style"] as? String ?? "nil", privacy: .public) reelEp=\(reelWatchEndpoint != nil, privacy: .public) overlayStyle=\(overlayStyle, privacy: .public) dur=\(durationStr, privacy: .public) vertThumb=\(isVerticalThumbnail, privacy: .public) ustreamerShorts=\(isUstreamerShorts, privacy: .public) → isShort=\(isShort, privacy: .public)"
         )
 
-        // publishedAt: best-effort from tileMetadata lines (second line may contain "2 years ago")
+        // Channel tiles may omit the author line and put the upload age in line zero.
         var publishedTimeText: String? = nil
         var isUpcoming: Bool = false
         let publishedAt: Date? = {
-            guard let lines = tileMetadata?["lines"] as? [[String: Any]], lines.count > 1 else { return nil }
-            for line in lines.dropFirst() {
+            guard let lines = tileMetadata?["lines"] as? [[String: Any]] else { return nil }
+            for line in lines {
                 guard let items = (line["lineRenderer"] as? [String: Any])?["items"] as? [[String: Any]] else {
                     continue
                 }
@@ -797,7 +804,9 @@ extension InnerTubeAPI {
 
         var publishedTimeText: String?
         let publishedAt: Date? = {
-            for row in metaRows.dropFirst() {
+            // On a channel's own page there may be no author row; upload metadata
+            // can be the first (or only) row instead of the usual second row.
+            for row in metaRows {
                 guard let parts = row["metadataParts"] as? [[String: Any]] else { continue }
                 for part in parts {
                     guard let text = part["text"] as? [String: Any],

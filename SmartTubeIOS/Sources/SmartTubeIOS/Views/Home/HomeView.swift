@@ -326,7 +326,7 @@ public struct HomeView: View {
                     sourceVideos: homeVM.homeRegularVideos + homeVM.homeShortsVideos,
                     isLoading: homeVM.isLoadingAny || homeVM.sections.contains { $0.isLoadingMore }
                         || homeVM.isPagingShorts,
-                    hasMore: filteredHomeHasMore, errorMessage: nil,
+                    hasMore: filteredHomeHasMore, errorMessage: homePaginationError,
                     loadMore: { loadMoreFilteredHome() }, refresh: { homeVM.load() },
                     onSelect: { selectVideo($0, from: $1) })
             } else {
@@ -345,6 +345,11 @@ public struct HomeView: View {
                 }, refresh: { sectionVM.loadContent(refresh: true) },
                 onSelect: { selectVideo($0, from: $1) })
         }
+    }
+
+    private var homePaginationError: String? {
+        homeVM.sections.contains { $0.hasFailed && $0.nextPageToken != nil }
+            ? "Couldn’t load more videos. Please try again." : nil
     }
 
     private var homeHasMoreMerged: Bool { homeVM.sections.contains { $0.nextPageToken != nil } }
@@ -418,16 +423,29 @@ public struct HomeView: View {
                         VideoGridSection(
                             videos: regularVideos,
                             onSelect: { selectVideo($0, from: regularVideos) },
-                            loadMore: { homeVM.loadMoreMerged() }
+                            loadMore: { homeVM.loadMoreMerged(automatically: true) }
                         )
                         let isLoadingMore = homeVM.sections.contains { $0.isLoadingMore }
                         if isLoadingMore {
                             ProgressView().frame(maxWidth: .infinity).padding()
+                        } else if homeHasMoreMerged {
+                            if let error = homePaginationError {
+                                Text(error).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Button("Load more videos") { homeVM.loadMoreMerged() }
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier(AccessibilityID.Home.loadMore)
+                                .padding()
                         }
                     }
                 }
                 .refreshable { homeVM.load() }
                 .accessibilityIdentifier(AccessibilityID.Home.scrollFeed)
+                .task(id: homeVM.sections.map(\.nextPageToken)) {
+                    if regularVideos.isEmpty, !homeVM.isLoadingAny {
+                        homeVM.loadMoreMerged(automatically: true)
+                    }
+                }
                 #if os(tvOS)
                 .focusSection()
                 #endif

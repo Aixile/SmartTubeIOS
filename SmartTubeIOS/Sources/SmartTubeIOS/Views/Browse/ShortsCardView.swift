@@ -38,7 +38,7 @@ struct ShortsCardView: View {
                 endPoint: .bottom
             )
             .overlay(alignment: .bottomLeading) {
-                Text(video.title)
+                VideoTitleText(video: video)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(2)

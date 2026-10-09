@@ -3,6 +3,63 @@ import Testing
 
 @Suite("Player orientation across screen locking")
 struct PlayerOrientationStateTests {
+    @Test("The button toggles both ways without moving the phone")
+    func manualToggle() {
+        var state = PlayerOrientationState()
+        state.present(physicalLandscape: false, interfaceLandscape: false, forceLandscape: false)
+        state.toggleOrientation()
+        #expect(state.isLandscape)
+        state.deviceRotated(physicalLandscape: false, sceneIsActive: true, forceLandscape: false)
+        #expect(state.isLandscape)
+        state.toggleOrientation()
+        #expect(!state.isLandscape)
+    }
+
+    @Test("Manual portrait survives sensor duplicates, backgrounding and reappearance")
+    func manualPortrait() {
+        var state = landscapePlayer()
+        state.toggleOrientation()
+        state.deviceRotated(physicalLandscape: true, sceneIsActive: true, forceLandscape: false)
+        state.deviceRotated(physicalLandscape: nil, sceneIsActive: true, forceLandscape: false)
+        state.deviceRotated(physicalLandscape: false, sceneIsActive: false, forceLandscape: false)
+        state.present(physicalLandscape: true, interfaceLandscape: true, forceLandscape: false)
+        #expect(!state.isLandscape)
+        state.dismiss()
+        state.present(physicalLandscape: true, interfaceLandscape: true, forceLandscape: false)
+        #expect(state.isLandscape)
+    }
+
+    @Test("A genuine physical turn resumes automatic orientation after using the button")
+    func physicalTurnClearsManualChoice() {
+        var state = landscapePlayer()
+        state.toggleOrientation()
+        #expect(!state.isLandscape)
+        state.deviceRotated(physicalLandscape: false, sceneIsActive: true, forceLandscape: false)
+        state.deviceRotated(physicalLandscape: true, sceneIsActive: true, forceLandscape: false)
+        #expect(state.isLandscape)
+    }
+
+    @Test("Manual choice overrides Always Play until the user requests landscape locking")
+    func manualChoiceAndLandscapePreference() {
+        var state = landscapePlayer()
+        state.setForceLandscape(true)
+        state.toggleOrientation()
+        state.setForceLandscape(true)
+        #expect(!state.isLandscape)
+        state.clearManualOrientation()
+        state.setForceLandscape(true)
+        #expect(state.isLandscape)
+    }
+
+    @Test("The button refreshes a stale sensor baseline without changing its target")
+    func buttonRefreshesPhysicalBaseline() {
+        var state = PlayerOrientationState()
+        state.present(physicalLandscape: false, interfaceLandscape: false, forceLandscape: true)
+        state.toggleOrientation(physicalLandscape: true)
+        state.deviceRotated(physicalLandscape: true, sceneIsActive: true, forceLandscape: false)
+        #expect(!state.isLandscape)
+    }
+
     @Test("An active player switches to landscape on the first rotation event")
     func portraitToLandscape() {
         var state = PlayerOrientationState()

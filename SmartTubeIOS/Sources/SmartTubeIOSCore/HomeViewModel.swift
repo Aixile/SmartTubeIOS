@@ -59,6 +59,7 @@ public final class HomeViewModel {
     /// Number of recommended videos inserted between each subscription video
     /// in the interleaved home feed.
     private static let interleaveRatio = 4
+    private static let popularContinuationPrefix = "home-popular:"
 
     /// `true` while either the recommended or subscriptions section is still on
     /// its initial load (no videos yet).  Used by the view to show a spinner.
@@ -150,6 +151,9 @@ public final class HomeViewModel {
 
     private let api: any InnerTubeAPIProtocol
     private var loadTask: Task<Void, Never>?
+    private var paginationTasks: [String: Task<Void, Never>] = [:]
+    private var generation = 0
+    private var consumedPageTokens: [String: Set<String>] = [:]
     private var hideObserverTasks: [Task<Void, Never>] = []
     /// Tracks whether a non-nil auth token has been set. Used to distinguish a
     /// sign-in event (nil → non-nil) from a token refresh (non-nil → new non-nil)
@@ -201,6 +205,7 @@ public final class HomeViewModel {
     /// call this when done to avoid orphaned tasks bleeding state into later use.
     public func cancel() {
         loadTask?.cancel()
+        paginationTasks.values.forEach { $0.cancel() }
         shortsPreloadTask?.cancel()
         hideObserverTasks.forEach { $0.cancel() }
     }
@@ -208,6 +213,10 @@ public final class HomeViewModel {
     // MARK: - Public API
 
     public func load() {
+        generation += 1
+        paginationTasks.values.forEach { $0.cancel() }
+        paginationTasks.removeAll()
+        consumedPageTokens.removeAll()
         loadTask?.cancel()
         shortsPreloadTask?.cancel()
         loadedAt = nil
@@ -309,42 +318,61 @@ public final class HomeViewModel {
             !sections[idx].isLoading
         else { return }
         sections[idx].isLoadingMore = true
+        sections[idx].hasFailed = false
         let type = sections[idx].section.type
-        Task {
-            let (newVideos, nextToken) = await HomeViewModel.fetchMoreVideos(type: type, token: token, api: api)
-            if let idx = sections.firstIndex(where: { $0.id == sectionId }) {
-                // Use a growing set so IDs that appear multiple times within
-                // newVideos itself (same page returning the same video twice)
-                // are also caught — not just duplicates against existing videos.
-                var seenIds = Set(sections[idx].videos.map(\.id))
-                let deduplicated = newVideos.filter { seenIds.insert($0.id).inserted }
-                sections[idx].videos.append(contentsOf: deduplicated)
-                // NOTE: Do NOT sort after appending. The YouTube subscription feed API
-                // returns pages in reverse-chronological order — page N+1 videos are
-                // always older than page N. Sorting the entire array after each append
-                // reorders existing items in SwiftUI's ForEach / mergedVideos interleave,
-                // which breaks the LazyVGrid scroll position (content shifts under the
-                // user's offset, making previously-seen cards reappear and the list
-                // appear to jump back).
-                //
-                // Stable-append to mergedVideos: only add videos not already present,
-                // preserving all existing card positions.
-                let existingMergedIds = Set(mergedVideos.map(\.id))
-                let newForMerged = deduplicated.filter { !existingMergedIds.contains($0.id) }
-                mergedVideos.append(contentsOf: newForMerged)
-                sections[idx].nextPageToken = nextToken
+        let requestGeneration = generation
+        paginationTasks[sectionId] = Task {
+            let result = await HomeViewModel.fetchMoreVideos(type: type, token: token, api: api)
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            paginationTasks.removeValue(forKey: sectionId)
+            guard let idx = sections.firstIndex(where: { $0.id == sectionId }) else { return }
+            guard let (newVideos, nextToken) = result else {
+                // Keep the cursor usable after a network failure.
+                sections[idx].hasFailed = true
                 sections[idx].isLoadingMore = false
+                return
             }
+            consumedPageTokens[sectionId, default: []].insert(token)
+            // Use a growing set so IDs that appear multiple times within
+            // newVideos itself (same page returning the same video twice)
+            // are also caught — not just duplicates against existing videos.
+            var seenIds = Set(sections[idx].videos.map(\.id))
+            let deduplicated = newVideos.filter { seenIds.insert($0.id).inserted }
+            sections[idx].videos.append(contentsOf: deduplicated)
+            // NOTE: Do NOT sort after appending. The YouTube subscription feed API
+            // returns pages in reverse-chronological order — page N+1 videos are
+            // always older than page N. Sorting the entire array after each append
+            // reorders existing items in SwiftUI's ForEach / mergedVideos interleave,
+            // which breaks the LazyVGrid scroll position (content shifts under the
+            // user's offset, making previously-seen cards reappear and the list
+            // appear to jump back).
+            //
+            // Stable-append to mergedVideos: only add videos not already present,
+            // preserving all existing card positions.
+            let existingMergedIds = Set(mergedVideos.map(\.id))
+            let newForMerged = deduplicated.filter { !existingMergedIds.contains($0.id) }
+            mergedVideos.append(contentsOf: newForMerged)
+            sections[idx].nextPageToken = nextToken.flatMap {
+                consumedPageTokens[sectionId, default: []].contains($0) ? nil : $0
+            }
+            sections[idx].isLoadingMore = false
         }
     }
 
     /// Called by the merged home feed when the user scrolls near the bottom.
     /// Pages both the recommended and subscriptions sections simultaneously so
     /// the interleaved list keeps growing evenly.
-    public func loadMoreMerged() {
+    public func loadMoreMerged(automatically: Bool = false) {
         for state in sections where state.section.type == .home || state.section.type == .subscriptions {
+            if automatically && state.hasFailed { continue }
             loadMore(sectionId: state.id)
         }
+    }
+
+    /// Wait at the async seam, rather than polling timing-dependent state in tests.
+    func waitForCurrentRequests() async {
+        await loadTask?.value
+        for task in Array(paginationTasks.values) { await task.value }
     }
 
     /// Called by the view when the user scrolls to the last card in the Shorts row.
@@ -405,10 +433,16 @@ public final class HomeViewModel {
             let token = sections[idx].nextPageToken
         {
             homeLog.notice("fetchOneShortsPage subs: fetching token=\(String(token.prefix(16)))\u{2026}")
-            let more = await Self.fetchMoreVideos(type: .subscriptions, token: token, api: api)
-            let existingIDs = Set(sections[idx].videos.map(\.id))
-            let newVideos = more.0.filter { !existingIDs.contains($0.id) }
+            guard let more = await Self.fetchMoreVideos(type: .subscriptions, token: token, api: api) else {
+                return false
+            }
+            var existingIDs = Set(sections[idx].videos.map(\.id))
+            let newVideos = more.0.filter { existingIDs.insert($0.id).inserted }
             sections[idx].videos.append(contentsOf: newVideos)
+            // Shorts preloading can consume mixed subscription pages. Keep their
+            // regular videos in the main feed too, so advancing the cursor loses nothing.
+            var mergedIDs = Set(mergedVideos.map(\.id))
+            mergedVideos.append(contentsOf: newVideos.filter { mergedIDs.insert($0.id).inserted })
             sections[idx].nextPageToken = more.1
             let newShorts = newVideos.filter { $0.isShort }.count
             homeLog.notice(
@@ -513,7 +547,7 @@ public final class HomeViewModel {
                 homeLog.notice(
                     "fetchVideos subs: total=\(group.videos.count) shorts=\(shortsCount) regular=\(group.videos.count - shortsCount)"
                 )
-                return (Array(group.videos.prefix(InnerTubeClients.maxVideoResults)), group.nextPageToken)
+                return (group.videos, group.nextPageToken)
             case .home:
                 let rows = try await api.fetchHomeRows()
                 let token = rows.last(where: { $0.nextPageToken != nil })?.nextPageToken
@@ -526,9 +560,9 @@ public final class HomeViewModel {
                 if deduped.isEmpty {
                     // Home feed empty (no watch history / feedNudgeRenderer) — fall back to popular
                     let popular = try await api.search(query: "popular")
-                    return (popular.videos, popular.nextPageToken)
+                    return (popular.videos, popular.nextPageToken.map { popularContinuationPrefix + $0 })
                 }
-                return (Array(deduped.prefix(InnerTubeClients.maxVideoResults)), token)
+                return (deduped, token)
             default:
                 return ([], nil)
             }
@@ -540,7 +574,7 @@ public final class HomeViewModel {
 
     private static func fetchMoreVideos(
         type: BrowseSection.SectionType, token: String, api: any InnerTubeAPIProtocol
-    ) async -> ([Video], String?) {
+    ) async -> ([Video], String?)? {
         do {
             switch type {
             case .subscriptions:
@@ -553,6 +587,13 @@ public final class HomeViewModel {
                 )
                 return (group.videos, group.nextPageToken)
             case .home:
+                if token.hasPrefix(popularContinuationPrefix) {
+                    let rawToken = String(token.dropFirst(popularContinuationPrefix.count))
+                    let group = try await retryWithBackoff(label: "HomeVM.popular") {
+                        try await api.search(query: "popular", continuationToken: rawToken, filter: .default)
+                    }
+                    return (group.videos, group.nextPageToken.map { popularContinuationPrefix + $0 })
+                }
                 let rows = try await retryWithBackoff(label: "HomeVM.home") {
                     try await api.fetchHomeRows(continuationToken: token)
                 }
@@ -567,7 +608,7 @@ public final class HomeViewModel {
             }
         } catch {
             homeLog.error("HomeViewModel loadMore \(String(describing: type)): \(error.localizedDescription)")
-            return ([], nil)
+            return nil
         }
     }
 }

@@ -7,6 +7,8 @@ private let tubeLog = Logger(subsystem: appSubsystem, category: "InnerTube")
 
 extension InnerTubeAPI {
 
+    private static let channelVideosParameters = "EgZ2aWRlb3PyBgQKAjoA"
+
     public func fetchChannel(channelId: String) async throws -> (channel: Channel, videos: VideoGroup) {
         // @handle strings are not valid browseIds — resolve to the real UC… channel ID first.
         let resolvedId: String
@@ -19,6 +21,9 @@ extension InnerTubeAPI {
         }
         var body = makeBody(client: webClientContext)
         body["browseId"] = resolvedId
+        // The default Home tab can contain only a small, non-paginated preview.
+        // Open Videos so the initial list and its continuation belong to uploads.
+        body["params"] = Self.channelVideosParameters
         tubeLog.notice("fetchChannel browseId=\(resolvedId, privacy: .public)")
         let data = try await post(endpoint: "browse", body: body)
         return try parseChannel(from: data, channelId: resolvedId)
@@ -48,7 +53,7 @@ extension InnerTubeAPI {
         var body = makeBody(client: webClientContext, continuationToken: continuationToken)
         if continuationToken == nil {
             body["browseId"] = channelId
-            body["params"] = "EgZ2aWRlb3PyBgQKAjoA"  // "Videos" tab parameter
+            body["params"] = Self.channelVideosParameters
         }
         let videosParams = (body["params"] as? String) ?? "nil"
         tubeLog.notice(

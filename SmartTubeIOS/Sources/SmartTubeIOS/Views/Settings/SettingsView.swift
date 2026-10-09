@@ -414,11 +414,15 @@ public struct SettingsView: View {
     private var deArrowSection: some View {
         @Bindable var store = store
         return Section {
+            Toggle("Show Original Video Titles", isOn: $store.settings.preferOriginalTitles)
+                .accessibilityIdentifier(AccessibilityID.Settings.originalTitles)
             Toggle("Enable DeArrow", isOn: $store.settings.deArrowEnabled)
         } header: {
-            Text("DeArrow")
+            Text("Video Titles")
         } footer: {
-            Text("Replace clickbait titles and thumbnails with community-sourced alternatives.")
+            Text(
+                "Show creator titles when YouTube provides them. DeArrow overrides titles and thumbnails with community alternatives when enabled."
+            )
         }
     }
 

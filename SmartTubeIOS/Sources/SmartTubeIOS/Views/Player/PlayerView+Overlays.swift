@@ -161,7 +161,7 @@ extension PlayerView {
         VStack(spacing: 0) {
             // Centered title header
             VStack(spacing: 2) {
-                Text(currentVideo.title)
+                VideoTitleText(video: currentVideo)
                     .font(.subheadline).fontWeight(.semibold)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -254,7 +254,7 @@ extension PlayerView {
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(currentVideo.title)
+                        VideoTitleText(video: currentVideo)
                             .font(.headline)
                         PlayerUploaderRow(video: currentVideo) {
                             guard let cid = currentVideo.channelId, !cid.isEmpty else { return }

@@ -715,9 +715,11 @@ extension PlayerView {
             handleDeviceOrientationChanged()
         }
         .onChange(of: store.settings.landscapeAlwaysPlay) { _, _ in
+            orientationState.clearManualOrientation()
             synchronizeLandscapePreference()
         }
-        .onChange(of: isLandscapeLocked) { _, _ in
+        .onChange(of: isLandscapeLocked) { _, locked in
+            if locked { orientationState.clearManualOrientation() }
             synchronizeLandscapePreference()
         }
         #endif
@@ -779,6 +781,7 @@ extension PlayerView {
             pipController: $pipController,
             isPiPActive: $isPiPActive,
             isLandscapeLocked: $isLandscapeLocked,
+            onToggleOrientation: togglePlayerOrientation,
             showQualityPicker: $showQualityPicker,
             showSpeedPicker: $showSpeedPicker,
             showAudioTrackPicker: $showAudioTrackPicker,

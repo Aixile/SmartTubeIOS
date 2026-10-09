@@ -58,6 +58,17 @@ extension PlayerView {
         applyPlayerOrientation()
     }
 
+    func togglePlayerOrientation() {
+        guard playerState.presentation == .fullScreen else { return }
+        if orientationState.isLandscape {
+            // Returning to portrait also releases the landscape-only lock.
+            isLandscapeLocked = false
+        }
+        orientationState.toggleOrientation(physicalLandscape: physicalLandscape)
+        applyPlayerOrientation()
+        vm.showControls()
+    }
+
     func restorePlayerOrientation() {
         // Do not sample UIDevice here: its initial value after unlocking can be
         // portrait/unknown even though the player was landscape before locking.

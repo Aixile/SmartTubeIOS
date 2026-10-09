@@ -146,6 +146,9 @@ public struct AppSettings: Codable {
     /// Applied automatically to each new video on load.
     public var preferredCaptionLanguage: String?
 
+    /// Prefer the creator’s title over localized browsing metadata.
+    public var preferOriginalTitles: Bool
+
     // MARK: DeArrow
     public var deArrowEnabled: Bool
 
@@ -311,6 +314,7 @@ public struct AppSettings: Codable {
         blockedChannels = [:]
         preferredAudioLanguage = AudioTrackPreference.original
         preferredCaptionLanguage = nil
+        preferOriginalTitles = true
         deArrowEnabled = false
         poTokenServiceURL = nil
         audioOnlyMode = false
@@ -390,6 +394,7 @@ extension AppSettings {
         case blockedChannels
         case preferredAudioLanguage
         case preferredCaptionLanguage
+        case preferOriginalTitles
         case deArrowEnabled
         case poTokenServiceURL
         case audioOnlyMode
@@ -466,6 +471,7 @@ extension AppSettings {
             ?? AudioTrackPreference.original
         preferredCaptionLanguage = c.safeDecode(
             String?.self, forKey: .preferredCaptionLanguage, default: d.preferredCaptionLanguage)
+        preferOriginalTitles = c.safeDecode(Bool.self, forKey: .preferOriginalTitles, default: d.preferOriginalTitles)
         deArrowEnabled = c.safeDecode(Bool.self, forKey: .deArrowEnabled, default: d.deArrowEnabled)
         poTokenServiceURL = c.safeDecode(URL?.self, forKey: .poTokenServiceURL, default: d.poTokenServiceURL)
         audioOnlyMode = c.safeDecode(Bool.self, forKey: .audioOnlyMode, default: d.audioOnlyMode)

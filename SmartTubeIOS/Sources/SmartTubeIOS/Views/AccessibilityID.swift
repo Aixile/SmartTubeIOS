@@ -1,4 +1,8 @@
 enum AccessibilityID {
+    enum Settings {
+        static let originalTitles = "settings.preferOriginalTitlesToggle"
+    }
+
     enum VideoCard {
         static let uploadTime = "video.card.uploadTime"
     }
@@ -15,6 +19,7 @@ enum AccessibilityID {
     }
 
     enum Player {
+        static let rotateOrientation = "player.rotateOrientationButton"
         static let channel = "player.channelName"
         static let publicationDate = "player.publicationDate"
         static let viewCount = "player.viewCount"
@@ -55,6 +60,8 @@ enum AccessibilityID {
     }
 
     enum Home {
+        static let loadMore = "home.loadMore"
+        static let topicLoadMore = "home.topic.loadMore"
         static let header = "home.chipBar"
         static let feedMenu = "home.feedMenu"
         static let groupingMenu = "home.groupingMenu"

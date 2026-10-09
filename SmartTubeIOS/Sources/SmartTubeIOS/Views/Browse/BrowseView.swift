@@ -207,6 +207,10 @@ struct VideoGridSection: View {
     @State private var orientationToken = UUID()
     #endif
 
+    private var paginationTriggerIDs: Set<String> {
+        Set(videos.suffix(FeedPaginationTuning.prefetchVideoCount).map(\.id))
+    }
+
     var body: some View {
         let compact = store.settings.compactThumbnails
         if compact {
@@ -218,7 +222,7 @@ struct VideoGridSection: View {
                         .padding(.vertical, 6)
                         .accessibilityIdentifier("video.card.\(video.id)")
                         .onAppear {
-                            if video.id == videos.last?.id { loadMore?() }
+                            if paginationTriggerIDs.contains(video.id) { loadMore?() }
                         }
                     #else
 
@@ -229,7 +233,7 @@ struct VideoGridSection: View {
                         .accessibilityValue(video.isShort ? "short" : "")
                         .onTapGesture { onSelect(video) }
                         .onAppear {
-                            if video.id == videos.last?.id { loadMore?() }
+                            if paginationTriggerIDs.contains(video.id) { loadMore?() }
                         }
                     #endif
                     Divider().padding(.horizontal)
@@ -262,7 +266,7 @@ struct VideoGridSection: View {
                         }
                     }
                     .onAppear {
-                        if rowVideos.last?.id == videos.last?.id { loadMore?() }
+                        if rowVideos.contains(where: { paginationTriggerIDs.contains($0.id) }) { loadMore?() }
                     }
                 }
             }
@@ -281,7 +285,7 @@ struct VideoGridSection: View {
                         .accessibilityValue(video.isShort ? "short" : "")
                         .onTapGesture { onSelect(video) }
                         .onAppear {
-                            if video.id == videos.last?.id { loadMore?() }
+                            if paginationTriggerIDs.contains(video.id) { loadMore?() }
                         }
                 }
             }
