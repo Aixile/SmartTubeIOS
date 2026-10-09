@@ -15,6 +15,10 @@ extension PlayerView {
         return orientation.isValidInterfaceOrientation ? orientation.isLandscape : nil
     }
 
+    private var physicalLandscapeSide: PlayerOrientationState.LandscapeSide? {
+        OrientationManager.landscapeSide(for: UIDevice.current.orientation)
+    }
+
     private var canAcceptOrientationChanges: Bool {
         // This player lives in a separate UIHostingController. Its SwiftUI
         // scenePhase/visibility can lag UIKit during presentation and unlocking.
@@ -28,7 +32,9 @@ extension PlayerView {
         orientationState.present(
             physicalLandscape: physicalLandscape,
             interfaceLandscape: scene?.interfaceOrientation.isLandscape ?? false,
-            forceLandscape: forceLandscape
+            forceLandscape: forceLandscape,
+            physicalLandscapeSide: physicalLandscapeSide,
+            interfaceLandscapeSide: scene.flatMap { OrientationManager.landscapeSide(for: $0.interfaceOrientation) }
         )
         restorePlayerOrientation()
     }
@@ -41,7 +47,8 @@ extension PlayerView {
         orientationState.deviceRotated(
             physicalLandscape: physicalLandscape,
             sceneIsActive: acceptsChanges,
-            forceLandscape: forceLandscape
+            forceLandscape: forceLandscape,
+            physicalLandscapeSide: physicalLandscapeSide
         )
         guard acceptsChanges else { return }
         applyPlayerOrientation()
@@ -52,7 +59,8 @@ extension PlayerView {
         orientationState.deviceRotated(
             physicalLandscape: physicalLandscape,
             sceneIsActive: canAcceptOrientationChanges,
-            forceLandscape: forceLandscape
+            forceLandscape: forceLandscape,
+            physicalLandscapeSide: physicalLandscapeSide
         )
         orientationState.setForceLandscape(forceLandscape)
         applyPlayerOrientation()
@@ -64,7 +72,8 @@ extension PlayerView {
             // Returning to portrait also releases the landscape-only lock.
             isLandscapeLocked = false
         }
-        orientationState.toggleOrientation(physicalLandscape: physicalLandscape)
+        orientationState.toggleOrientation(
+            physicalLandscape: physicalLandscape, physicalLandscapeSide: physicalLandscapeSide)
         applyPlayerOrientation()
         vm.showControls()
     }
@@ -79,7 +88,8 @@ extension PlayerView {
 
     private func applyPlayerOrientation() {
         vm.isLandscape = orientationState.isLandscape
-        OrientationManager.shared.playerIsActive = orientationState.isLandscape
+        OrientationManager.shared.applyPlayerOrientation(
+            isLandscape: orientationState.isLandscape, landscapeSide: orientationState.landscapeSide)
     }
 }
 #endif

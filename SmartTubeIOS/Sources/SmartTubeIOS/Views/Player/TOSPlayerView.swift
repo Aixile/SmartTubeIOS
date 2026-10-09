@@ -400,8 +400,9 @@ public struct TOSPlayerView: View {
                 showControls()
                 UIDevice.current.beginGeneratingDeviceOrientationNotifications()
                 let physicallyLandscape = UIDevice.current.orientation.isLandscape
-                OrientationManager.shared.playerIsActive =
-                    isLandscapeLocked || store.settings.landscapeAlwaysPlay || physicallyLandscape
+                OrientationManager.shared.applyPlayerOrientation(
+                    isLandscape: isLandscapeLocked || store.settings.landscapeAlwaysPlay || physicallyLandscape,
+                    landscapeSide: OrientationManager.landscapeSide(for: UIDevice.current.orientation))
                 #endif
             }
             // Pause the embedded <video> element when this view leaves the hierarchy.
@@ -497,9 +498,12 @@ public struct TOSPlayerView: View {
             // PlayerView+Lifecycle.swift's identical orientation-sync modifiers.
             .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
                 let orientation = UIDevice.current.orientation
-                guard orientation.isValidInterfaceOrientation else { return }
-                OrientationManager.shared.playerIsActive =
-                    isLandscapeLocked || store.settings.landscapeAlwaysPlay || orientation.isLandscape
+                guard orientation.isValidInterfaceOrientation,
+                    UIApplication.shared.applicationState == .active
+                else { return }
+                OrientationManager.shared.applyPlayerOrientation(
+                    isLandscape: isLandscapeLocked || store.settings.landscapeAlwaysPlay || orientation.isLandscape,
+                    landscapeSide: OrientationManager.landscapeSide(for: orientation))
             }
             .onChange(of: store.settings.landscapeAlwaysPlay) { _, alwaysLandscape in
                 OrientationManager.shared.playerIsActive = isLandscapeLocked || alwaysLandscape

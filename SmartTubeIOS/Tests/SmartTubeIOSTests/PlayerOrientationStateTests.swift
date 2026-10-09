@@ -132,6 +132,91 @@ struct PlayerOrientationStateTests {
         #expect(state.isLandscape)
     }
 
+    @Test("The player follows both landscape directions without needing portrait in between")
+    func landscapeSideToSide() {
+        var state = PlayerOrientationState()
+        state.present(physicalLandscape: false, interfaceLandscape: false, forceLandscape: false)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: true, forceLandscape: false, physicalLandscapeSide: .left)
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == .left)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: true, forceLandscape: false, physicalLandscapeSide: .right)
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == .right)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: true, forceLandscape: false, physicalLandscapeSide: .left)
+        #expect(state.landscapeSide == .left)
+    }
+
+    @Test(
+        "Inactive sensor changes and reappearance retain the exact landscape side",
+        arguments: [
+            PlayerOrientationState.LandscapeSide.left, .right,
+        ])
+    func screenLockPreservesSide(_ side: PlayerOrientationState.LandscapeSide) {
+        var state = PlayerOrientationState()
+        state.present(
+            physicalLandscape: true, interfaceLandscape: true, forceLandscape: false, physicalLandscapeSide: side)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: false, forceLandscape: false,
+            physicalLandscapeSide: side == .left ? .right : .left)
+        state.present(
+            physicalLandscape: false, interfaceLandscape: false, forceLandscape: false,
+            interfaceLandscapeSide: side == .left ? .right : .left)
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == side)
+        state.deviceRotated(physicalLandscape: nil, sceneIsActive: true, forceLandscape: false)
+        #expect(state.landscapeSide == side)
+    }
+
+    @Test("A genuine left/right turn resumes automatic rotation after manual portrait")
+    func sideChangeClearsManualPortrait() {
+        var state = PlayerOrientationState()
+        state.present(
+            physicalLandscape: true, interfaceLandscape: true, forceLandscape: false, physicalLandscapeSide: .left)
+        state.toggleOrientation(physicalLandscape: true, physicalLandscapeSide: .left)
+        #expect(!state.isLandscape)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: true, forceLandscape: false, physicalLandscapeSide: .left)
+        #expect(!state.isLandscape)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: true, forceLandscape: false, physicalLandscapeSide: .right)
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == .right)
+    }
+
+    @Test("Forced landscape retains its side through portrait and follows the next sideways turn")
+    func landscapeLockRemembersSide() {
+        var state = PlayerOrientationState()
+        state.present(
+            physicalLandscape: true, interfaceLandscape: true, forceLandscape: true, physicalLandscapeSide: .left)
+        state.deviceRotated(physicalLandscape: false, sceneIsActive: true, forceLandscape: true)
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == .left)
+        state.deviceRotated(
+            physicalLandscape: true, sceneIsActive: true, forceLandscape: true, physicalLandscapeSide: .right)
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == .right)
+    }
+
+    @Test("The orientation button and presentation fallback use the remembered interface side")
+    func buttonAndInterfaceSideFallback() {
+        var state = PlayerOrientationState()
+        state.present(
+            physicalLandscape: nil, interfaceLandscape: true, forceLandscape: false, interfaceLandscapeSide: .left)
+        state.toggleOrientation()
+        state.toggleOrientation()
+        #expect(state.isLandscape)
+        #expect(state.landscapeSide == .left)
+        state.dismiss()
+        #expect(state.landscapeSide == nil)
+        state.present(
+            physicalLandscape: true, interfaceLandscape: true, forceLandscape: false,
+            physicalLandscapeSide: .right, interfaceLandscapeSide: .left)
+        #expect(state.landscapeSide == .right)
+    }
+
     private func landscapePlayer() -> PlayerOrientationState {
         var state = PlayerOrientationState()
         state.present(physicalLandscape: true, interfaceLandscape: false, forceLandscape: false)

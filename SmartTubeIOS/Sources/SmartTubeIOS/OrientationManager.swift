@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import SmartTubeIOSCore
 import UIKit
 import OSLog
 
@@ -24,6 +25,36 @@ private func geometryUpdateErrorHandler(_ error: Error) {
 public final class OrientationManager {
     public static let shared = OrientationManager()
     private init() {}
+    private var landscapeSide: PlayerOrientationState.LandscapeSide?
+
+    /// Device and interface landscape directions are opposite (UIKit convention).
+    static func landscapeSide(for orientation: UIDeviceOrientation) -> PlayerOrientationState.LandscapeSide? {
+        switch orientation {
+        case .landscapeLeft: .right
+        case .landscapeRight: .left
+        default: nil
+        }
+    }
+
+    static func landscapeSide(for orientation: UIInterfaceOrientation) -> PlayerOrientationState.LandscapeSide? {
+        switch orientation {
+        case .landscapeLeft: .left
+        case .landscapeRight: .right
+        default: nil
+        }
+    }
+
+    /// A left/right turn needs a geometry request even though the layout stays landscape.
+    func applyPlayerOrientation(isLandscape: Bool, landscapeSide: PlayerOrientationState.LandscapeSide?) {
+        let nextSide = isLandscape ? landscapeSide : nil
+        let sideChanged = self.landscapeSide != nextSide
+        self.landscapeSide = nextSide
+        if playerIsActive != isLandscape {
+            playerIsActive = isLandscape
+        } else if isLandscape && sideChanged {
+            restoreInterfaceOrientation()
+        }
+    }
 
     /// Set to `true` when the player is on screen AND `vm.isLandscape == true`
     /// (driven by `landscapeAlwaysPlay` or physical device orientation).
@@ -33,6 +64,7 @@ public final class OrientationManager {
     ///   2. Requests a geometry update so the window actually rotates.
     public var playerIsActive = false {
         didSet {
+            if !playerIsActive { landscapeSide = nil }
             guard oldValue != playerIsActive else {
                 orientationLog.notice(
                     "[OrientationManager] playerIsActive set to \(self.playerIsActive) — no change, skipping")
@@ -97,7 +129,12 @@ public final class OrientationManager {
             }
             // Read the current mask after yielding; an earlier rotation request
             // must not undo a newer lock, dismissal, or foreground restoration.
-            let mask = self.supportedInterfaceOrientations
+            let mask: UIInterfaceOrientationMask
+            if self.playerIsActive, let side = self.landscapeSide {
+                mask = side == .left ? .landscapeLeft : .landscapeRight
+            } else {
+                mask = self.supportedInterfaceOrientations
+            }
             let pref = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: mask)
             orientationLog.notice(
                 "[OrientationManager] requestGeometryUpdate — requesting mask=\(mask.rawValue) on scene")
